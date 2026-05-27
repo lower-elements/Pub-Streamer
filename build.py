@@ -66,10 +66,8 @@ cmd = [
     "--include-package=pyasn1_modules",
     "--include-package=piper",
     "--include-package=onnxruntime",
-    "--include-package=soundfile",
     "--include-package=cffi",
     "--include-package=aiohttp",
-    "--include-package=aiofiles",
 
     f"--output-dir={DIST}",
     "--output-filename=PubStreamer",
