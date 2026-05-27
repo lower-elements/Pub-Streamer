@@ -218,7 +218,7 @@ class Vst2Plugin:
         if self._process_fn is None:
             if not self._diag_done:
                 self._diag_done = True
-                print("[VST2] processReplacing is NULL — plugin skipped")
+                print("[VST2] processReplacing is NULL - plugin skipped")
             return audio
 
         ae    = self._aeffect

@@ -1,12 +1,19 @@
-"""Piper neural TTS engine via the `piper-tts` pip package."""
+﻿"""Piper neural TTS engine via the `piper-tts` pip package."""
 
 import numpy as np
 
-from .base import TtsEngine, decode_audio_bytes, pcm16_to_wav
+from pubstreamer.tts.base import TtsEngine, decode_audio_bytes, pcm16_to_wav
 
 
 class PiperEngine(TtsEngine):
     name = "Piper"
+
+    CONFIG_SCHEMA = [
+        {"key": "model_path", "label": "Model file (*.onnx):", "type": "file",
+         "wildcard": "Piper model (*.onnx)|*.onnx|All files (*.*)|*.*"},
+        {"type": "note",
+         "text": "The *.onnx.json config file must sit next to the model."},
+    ]
 
     def __init__(self, model_path: str = ""):
         self.model_path = model_path

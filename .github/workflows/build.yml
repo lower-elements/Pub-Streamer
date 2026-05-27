@@ -31,13 +31,13 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: PubStreamer-windows
-          path: dist/PubStreamer.dist/
+          path: dist/main.dist/
           if-no-files-found: error
 
       # Create a GitHub Release and attach the build when a version tag is pushed.
       - name: Zip release folder
         if: startsWith(github.ref, 'refs/tags/')
-        run: Compress-Archive -Path dist/PubStreamer.dist/* -DestinationPath dist/PubStreamer-${{ github.ref_name }}-windows.zip
+        run: Compress-Archive -Path dist/main.dist/* -DestinationPath dist/PubStreamer-${{ github.ref_name }}-windows.zip
 
       - name: Create release
         if: startsWith(github.ref, 'refs/tags/')

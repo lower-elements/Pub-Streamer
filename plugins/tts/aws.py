@@ -1,10 +1,22 @@
-"""AWS Polly TTS engine."""
+﻿"""AWS Polly TTS engine."""
 
-from .base import TtsEngine, pcm16_to_wav, decode_audio_bytes
+from pubstreamer.tts.base import TtsEngine, pcm16_to_wav, decode_audio_bytes
 
 
 class AwsEngine(TtsEngine):
     name = "AWS Polly"
+    key  = "aws"
+
+    CONFIG_SCHEMA = [
+        {"key": "access_key_id",     "label": "Access key ID:", "type": "text"},
+        {"key": "secret_access_key", "label": "Secret access key:", "type": "text",
+         "password": True},
+        {"key": "region",            "label": "Region (e.g. us-east-1):", "type": "text"},
+        {"key": "engine",            "label": "Engine:", "type": "choice",
+         "choices": ["neural", "standard"]},
+        {"key": "voice_id",          "label": "Voice ID:", "type": "voice_list",
+         "fetch": "fetch_voices"},
+    ]
 
     def __init__(self, access_key_id: str = "", secret_access_key: str = "",
                  region: str = "us-east-1", voice_id: str = "Joanna",
@@ -47,9 +59,12 @@ class AwsEngine(TtsEngine):
             print(f"[AWS Polly] synthesize error: {e}", flush=True)
             return None
 
-    @staticmethod
-    def fetch_voices(access_key_id: str, secret_access_key: str,
-                     region: str = "us-east-1", engine: str = "neural") -> list[str]:
+    @classmethod
+    def fetch_voices(cls, config: dict) -> list[tuple[str, str]]:
+        access_key_id     = config.get("access_key_id", "")
+        secret_access_key = config.get("secret_access_key", "")
+        region            = config.get("region", "us-east-1")
+        engine            = config.get("engine", "neural")
         try:
             import boto3
             polly = boto3.client(
@@ -59,7 +74,8 @@ class AwsEngine(TtsEngine):
                 region_name=region,
             )
             resp = polly.describe_voices(Engine=engine)
-            return sorted(v["Id"] for v in resp.get("Voices", []))
+            return sorted([(v["Id"], v["Id"]) for v in resp.get("Voices", [])],
+                          key=lambda x: x[0])
         except Exception as e:
             raise RuntimeError(f"AWS Polly voice list failed: {e}") from e
 

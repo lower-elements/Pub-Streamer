@@ -133,7 +133,7 @@ class IcecastStream:
                 self._write_loop()
             except FileNotFoundError:
                 self._notify("error")
-                print("[IcecastStream] ffmpeg not found — ensure it is in PATH")
+                print("[IcecastStream] ffmpeg not found - ensure it is in PATH")
                 break
             except Exception as e:
                 print(f"[IcecastStream] error: {e}")

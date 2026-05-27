@@ -95,7 +95,7 @@ class VstPanelDialog(wx.Dialog):
             path = dlg.GetPath()
             err = self._chain.add_plugin(path)
             if err:
-                _log(f"VST load failed: '{path}' — {err}")
+                _log(f"VST load failed: '{path}' - {err}")
                 wx.MessageBox(f"Failed to load plugin:\n{err}", "Plugin error",
                               wx.OK | wx.ICON_ERROR, self)
             else:

@@ -1,8 +1,8 @@
-"""Microsoft Edge online TTS engine via the edge-tts package."""
+﻿"""Microsoft Edge online TTS engine via the edge-tts package."""
 
 import asyncio
 
-from .base import TtsEngine, decode_audio_bytes
+from pubstreamer.tts.base import TtsEngine, decode_audio_bytes
 
 _DEFAULT_VOICE = "en-US-AriaNeural"
 
@@ -19,6 +19,20 @@ def _hz(n: int) -> str:
 
 class EdgeEngine(TtsEngine):
     name = "Edge TTS"
+    key  = "edge"
+
+    CONFIG_SCHEMA = [
+        {"key": "voice",  "label": "Voice:",   "type": "voice_list",
+         "fetch": "fetch_voices"},
+        {"key": "rate",   "label": "Rate:",    "type": "slider",
+         "min": -50, "max": 100, "fmt": "pct_signed", "default": 0},
+        {"key": "volume", "label": "Volume:",  "type": "slider",
+         "min": -50, "max": 100, "fmt": "pct_signed", "default": 0},
+        {"key": "pitch",  "label": "Pitch:",   "type": "slider",
+         "min": -50, "max": 50, "fmt": "hz_signed", "default": 0},
+        {"type": "note",
+         "text": "Uses Microsoft Edge read-aloud service. Requires internet."},
+    ]
 
     def __init__(self, voice: str = _DEFAULT_VOICE,
                  rate: int = 0, volume: int = 0, pitch: int = 0):
@@ -59,8 +73,8 @@ class EdgeEngine(TtsEngine):
             print(f"[Edge TTS] synthesize error: {e}", flush=True)
             return None
 
-    @staticmethod
-    def fetch_voices() -> list[tuple[str, str]]:
+    @classmethod
+    def fetch_voices(cls, config: dict) -> list[tuple[str, str]]:
         """Return sorted list of (short_name, display_label) pairs."""
         try:
             import edge_tts

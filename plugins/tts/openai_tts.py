@@ -1,6 +1,6 @@
-"""OpenAI TTS engine via REST API (no openai package required)."""
+﻿"""OpenAI TTS engine via REST API (no openai package required)."""
 
-from .base import TtsEngine, decode_audio_bytes, pcm16_to_wav
+from pubstreamer.tts.base import TtsEngine, decode_audio_bytes, pcm16_to_wav
 
 _API_URL = "https://api.openai.com/v1/audio/speech"
 
@@ -13,6 +13,15 @@ class OpenAITtsEngine(TtsEngine):
 
     VOICES = VOICES
     MODELS = MODELS
+
+    CONFIG_SCHEMA = [
+        {"key": "api_key", "label": "API key:", "type": "text", "password": True},
+        {"key": "model",   "label": "Model:",   "type": "choice", "choices": MODELS},
+        {"key": "voice",   "label": "Voice:",   "type": "voice_list",
+         "choices": [(v, v) for v in VOICES]},
+        {"key": "speed",   "label": "Speed:",   "type": "slider",
+         "min": 25, "max": 400, "scale": 100.0, "fmt": "scale_x", "default": 100},
+    ]
 
     def __init__(self, api_key: str = "", model: str = "tts-1",
                  voice: str = "alloy", speed: float = 1.0):

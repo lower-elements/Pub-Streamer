@@ -1,6 +1,6 @@
-"""SAPI 5 TTS engine — renders speech to an in-memory stream via COM."""
+﻿"""SAPI 5 TTS engine — renders speech to an in-memory stream via COM."""
 
-from .base import TtsEngine, pcm16_to_wav, decode_audio_bytes
+from pubstreamer.tts.base import TtsEngine, pcm16_to_wav, decode_audio_bytes
 
 # SPSTREAMFORMAT enum: 44.1 kHz 16-bit mono.
 _SPSF_44kHz16BitMono = 34
@@ -8,6 +8,15 @@ _SPSF_44kHz16BitMono = 34
 
 class SapiEngine(TtsEngine):
     name = "SAPI 5"
+    key  = "sapi"
+
+    CONFIG_SCHEMA = [
+        {"key": "voice_index", "label": "Voice:",   "type": "voice_list"},
+        {"key": "rate",        "label": "Rate:",     "type": "slider",
+         "min": -10, "max": 10, "default": 0},
+        {"key": "volume",      "label": "Volume:",   "type": "slider",
+         "min": 0, "max": 100, "default": 100},
+    ]
 
     def __init__(self, voice_index: int = 0, rate: int = 0, volume: int = 100):
         self.voice_index = voice_index

@@ -49,6 +49,16 @@ class TtsEngine:
 
     name: str = "Unknown"
 
+    # Optional: set this to a stable ASCII key used in saved configs.
+    # If unset, the key is auto-derived from name (lower-case, spaces→underscores).
+    key: str | None = None
+
+    CONFIG_SCHEMA: list[dict] = []
+
+    @classmethod
+    def fetch_voices(cls, config: dict) -> list[tuple[str, str]]:
+        return []
+
     def is_available(self) -> bool:
         """Return True if the required optional packages are installed."""
         return True

@@ -1,11 +1,12 @@
-"""Google Translate TTS engine via gTTS (free, no API key required)."""
+﻿"""Google Translate TTS engine via gTTS (free, no API key required)."""
 
 import io
-from .base import TtsEngine, decode_audio_bytes
+from pubstreamer.tts.base import TtsEngine, decode_audio_bytes
 
 
 class GttsEngine(TtsEngine):
     name = "Google Translate"
+    key  = "gtts"
 
     # (code, display label) pairs shown in the language list.
     LANGUAGES: list[tuple[str, str]] = [
@@ -30,6 +31,12 @@ class GttsEngine(TtsEngine):
         ("tr", "Turkish"),      ("uk", "Ukrainian"),        ("ur", "Urdu"),
         ("vi", "Vietnamese"),   ("zh-CN", "Chinese (Simplified)"),
         ("zh-TW", "Chinese (Traditional)"),
+    ]
+
+    CONFIG_SCHEMA = [
+        {"key": "lang", "label": "Language:", "type": "voice_list",
+         "choices": LANGUAGES},
+        {"key": "slow", "label": "Slow speed", "type": "checkbox"},
     ]
 
     def __init__(self, lang: str = "en", slow: bool = False):

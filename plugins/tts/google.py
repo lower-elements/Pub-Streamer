@@ -1,10 +1,20 @@
-"""Google Cloud Text-to-Speech engine."""
+﻿"""Google Cloud Text-to-Speech engine."""
 
-from .base import TtsEngine, decode_audio_bytes
+from pubstreamer.tts.base import TtsEngine, decode_audio_bytes
 
 
 class GoogleEngine(TtsEngine):
     name = "Google Cloud"
+    key  = "google"
+
+    CONFIG_SCHEMA = [
+        {"key": "api_key",       "label": "API key:", "type": "text", "password": True},
+        {"key": "language_code", "label": "Language code:", "type": "text"},
+        {"key": "voice_name",    "label": "Voice:", "type": "voice_list",
+         "fetch": "fetch_voices"},
+        {"type": "note",
+         "text": "Leave API key blank to use Application Default Credentials."},
+    ]
 
     def __init__(self, api_key: str = "", voice_name: str = "en-US-Wavenet-C",
                  language_code: str = "en-US"):
@@ -49,8 +59,10 @@ class GoogleEngine(TtsEngine):
             print(f"[Google TTS] synthesize error: {e}", flush=True)
             return None
 
-    @staticmethod
-    def fetch_voices(api_key: str = "", language_code: str = "") -> list[str]:
+    @classmethod
+    def fetch_voices(cls, config: dict) -> list[tuple[str, str]]:
+        api_key       = config.get("api_key", "")
+        language_code = config.get("language_code", "")
         try:
             from google.cloud import texttospeech
             if api_key:
@@ -61,7 +73,7 @@ class GoogleEngine(TtsEngine):
             else:
                 client = texttospeech.TextToSpeechClient()
             resp = client.list_voices(language_code=language_code or "")
-            return sorted(v.name for v in resp.voices)
+            return [(name, name) for name in sorted(v.name for v in resp.voices)]
         except Exception as e:
             raise RuntimeError(f"Google voice list failed: {e}") from e
 

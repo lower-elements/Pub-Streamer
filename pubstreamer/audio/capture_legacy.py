@@ -316,7 +316,7 @@ class LegacyCapture:
                 "DLL may have failed to initialise.")
 
         self._shmem_mm = mm
-        print(f"[LegacyCapture pid={self.pid}] shared memory open, reading …",
+        print(f"[LegacyCapture pid={self.pid}] shared memory open, reading...",
               flush=True)
 
         self._read_loop(mm)

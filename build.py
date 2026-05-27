@@ -29,6 +29,9 @@ if SOUNDS.exists():
 native_dir = ROOT / "native"
 if native_dir.exists():
     data_dirs.append(f"--include-data-dir={native_dir}=native")
+plugins_dir = ROOT / "plugins"
+if plugins_dir.exists():
+    data_dirs.append(f"--include-data-dir={plugins_dir}=plugins")
 
 icon = ROOT / "pubstreamer" / "ui" / "icon.ico"
 

@@ -1,10 +1,18 @@
-"""Azure Cognitive Services TTS engine."""
+﻿"""Azure Cognitive Services TTS engine."""
 
-from .base import TtsEngine, decode_audio_bytes
+from pubstreamer.tts.base import TtsEngine, decode_audio_bytes
 
 
 class AzureEngine(TtsEngine):
     name = "Azure"
+
+    CONFIG_SCHEMA = [
+        {"key": "subscription_key", "label": "Subscription key:", "type": "text",
+         "password": True},
+        {"key": "region",           "label": "Region (e.g. eastus):", "type": "text"},
+        {"key": "voice_name",       "label": "Voice:", "type": "voice_list",
+         "fetch": "fetch_voices"},
+    ]
 
     def __init__(self, subscription_key: str = "", region: str = "",
                  voice_name: str = "en-US-JennyNeural"):
@@ -42,14 +50,17 @@ class AzureEngine(TtsEngine):
             print(f"[Azure] synthesize error: {e}", flush=True)
             return None
 
-    @staticmethod
-    def fetch_voices(subscription_key: str, region: str) -> list[str]:
+    @classmethod
+    def fetch_voices(cls, config: dict) -> list[tuple[str, str]]:
+        subscription_key = config.get("subscription_key", "")
+        region           = config.get("region", "")
         try:
             import azure.cognitiveservices.speech as sdk
             cfg   = sdk.SpeechConfig(subscription=subscription_key, region=region)
             synth = sdk.SpeechSynthesizer(speech_config=cfg, audio_config=None)
             result = synth.get_voices_async().get()
-            return sorted(v.short_name for v in (result.voices or []))
+            return [(name, name)
+                    for name in sorted(v.short_name for v in (result.voices or []))]
         except Exception as e:
             raise RuntimeError(f"Azure voice list failed: {e}") from e
 

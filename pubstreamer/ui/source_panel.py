@@ -22,7 +22,7 @@ from ..audio.capture_tts import ChatTtsCapture
 from ..audio.capture_sound_events import (SoundEventCapture, EVENTS as SOUND_EVENTS,
                                           list_packs, available_events)
 from ..audio.capture_mastodon import MastodonRepliesCapture
-from ..tts import ENGINE_NAMES, engine_key, engine_display_name, make_engine
+from ..tts import engine_names, engine_key, engine_class, engine_display_name, make_engine
 from .vst_panel import VstPanelDialog
 from ..i18n import _
 
@@ -32,9 +32,9 @@ _OBJID_CLIENT = -4
 
 
 def _make_sapi_fallback():
-    """Return a SapiEngine fallback if SAPI is available, else None."""
-    from ..tts.sapi import SapiEngine
-    eng = SapiEngine()
+    """Return a SAPI engine fallback if SAPI is available, else None."""
+    from ..tts import make_engine
+    eng = make_engine("sapi")
     return eng if eng.is_available() else None
 
 
@@ -111,7 +111,7 @@ def _offthread_sessions(timeout: float = 10.0) -> list[dict]:
 
     threading.Thread(target=_worker, daemon=True, name="session-enum").start()
     fired = done.wait(timeout=timeout)
-    _log(f"[offthread_sessions] {'OK' if fired else 'TIMED OUT'} → {len(result)} sessions")
+    _log(f"[offthread_sessions] {'OK' if fired else 'TIMED OUT'} -> {len(result)} sessions")
     return result
 
 
@@ -646,7 +646,7 @@ class SourcePanel(wx.Panel):
 
         self._lb.SetString(idx, new_name)
         self.save_all()
-        _log(f"Edit source: '{entry['name']}' → '{new_name}'")
+        _log(f"Edit source: '{entry['name']}' -> '{new_name}'")
 
         threading.Thread(target=lambda c=old_cap: c.stop(),
                          daemon=True, name="src-edit-stop").start()
@@ -911,7 +911,7 @@ class SourcePanel(wx.Panel):
                 self._mixer.master_vst.from_dict(master_data)
         except Exception:
             pass
-        _log(f"Restore: done — {len(self._sources)} source(s) active")
+        _log(f"Restore: done - {len(self._sources)} source(s) active")
         if any(s.monitored for s in self._sources):
             _log("Restore: starting monitor in background")
             sel = self._mon_dev_ch.GetSelection()
@@ -1224,6 +1224,7 @@ class _AddSourceDialog(wx.Dialog):
         self._chunk_frames = chunk_frames
         self._config       = config
         self._mastodon     = mastodon
+        self._schema_widgets: dict = {}
 
         # Fetch data up-front so the dialog doesn't stall on show.
         self._devices       = list_wasapi_devices()
@@ -1401,24 +1402,20 @@ class _AddSourceDialog(wx.Dialog):
         engine_row = wx.BoxSizer(wx.HORIZONTAL)
         engine_row.Add(wx.StaticText(page, label=_("Engine:")),
                        0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
-        self._tts_engine_cb = wx.ComboBox(page, choices=ENGINE_NAMES,
-                                           value=ENGINE_NAMES[0],
+        _enames = engine_names()
+        self._tts_engine_cb = wx.ComboBox(page, choices=_enames,
+                                           value=_enames[0],
                                            style=wx.CB_READONLY, name="TTS engine")
         self._tts_engine_cb.Bind(wx.EVT_COMBOBOX, self._on_tts_engine)
         engine_row.Add(self._tts_engine_cb, 1)
         sizer.Add(engine_row, 0, wx.EXPAND | wx.BOTTOM, 8)
 
         self._tts_book = wx.Simplebook(page)
-        self._tts_book.AddPage(self._build_tts_sapi_panel(),        "SAPI 5")
-        self._tts_book.AddPage(self._build_tts_piper_panel(),       "Piper")
-        self._tts_book.AddPage(self._build_tts_star_panel(),        "Star")
-        self._tts_book.AddPage(self._build_tts_elevenlabs_panel(),  "ElevenLabs")
-        self._tts_book.AddPage(self._build_tts_openai_panel(),      "OpenAI")
-        self._tts_book.AddPage(self._build_tts_azure_panel(),       "Azure")
-        self._tts_book.AddPage(self._build_tts_google_panel(),      "Google Cloud")
-        self._tts_book.AddPage(self._build_tts_gtts_panel(),        "Google Translate")
-        self._tts_book.AddPage(self._build_tts_aws_panel(),         "AWS Polly")
-        self._tts_book.AddPage(self._build_tts_edge_panel(),        "Edge TTS")
+        for _ename in engine_names():
+            _cls = engine_class(_ename)
+            self._tts_book.AddPage(
+                self._build_schema_panel(self._tts_book, _cls.CONFIG_SCHEMA, _ename),
+                _ename)
         for i in range(1, self._tts_book.GetPageCount()):
             self._tts_book.GetPage(i).Disable()
         sizer.Add(self._tts_book, 1, wx.EXPAND)
@@ -1441,369 +1438,282 @@ class _AddSourceDialog(wx.Dialog):
         page.SetSizer(sizer)
         return page
 
-    def _build_tts_sapi_panel(self) -> wx.Panel:
-        from ..tts.sapi import SapiEngine
-        p = wx.Panel(self._tts_book)
-        s = wx.BoxSizer(wx.VERTICAL)
+    def _fmt_slider_val(self, val: int, field: dict) -> str:
+        fmt   = field.get("fmt", "")
+        scale = field.get("scale")
+        if fmt == "pct_signed":
+            return f"+{val}%" if val >= 0 else f"{val}%"
+        if fmt == "hz_signed":
+            return f"+{val} Hz" if val >= 0 else f"{val} Hz"
+        if fmt == "scale_x" and scale:
+            return f"{val / scale:.2f}×"
+        if scale:
+            return f"{val / scale:.2f}"
+        return str(val)
 
-        s.Add(wx.StaticText(p, label=_("Voice:")), 0, wx.BOTTOM, 2)
-        voices = SapiEngine().list_voices() or ["(no SAPI voices found)"]
-        self._sapi_voice_lb = wx.ListBox(p, choices=voices, style=wx.LB_SINGLE,
-                                          name="SAPI voice")
-        self._sapi_voice_lb.SetSelection(0)
-        s.Add(self._sapi_voice_lb, 1, wx.EXPAND | wx.BOTTOM, 8)
+    def _schema_browse_file(self, ctrl: "wx.TextCtrl", wildcard: str):
+        dlg = wx.FileDialog(self, wildcard=wildcard,
+                            style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST)
+        if dlg.ShowModal() == wx.ID_OK:
+            ctrl.SetValue(dlg.GetPath())
+        dlg.Destroy()
 
-        grid = wx.FlexGridSizer(cols=3, hgap=8, vgap=4)
-        grid.AddGrowableCol(1)
+    def _build_schema_panel(self, parent: "wx.Simplebook",
+                            schema: list, prefix: str) -> "wx.Panel":
+        """Build a settings panel driven by a CONFIG_SCHEMA list.
 
-        grid.Add(wx.StaticText(p, label=_("Rate:")), 0, wx.ALIGN_CENTER_VERTICAL)
-        self._sapi_rate = wx.Slider(p, value=0, minValue=-10, maxValue=10, name="Rate")
-        self._sapi_rate_lbl = wx.StaticText(p, label="0", size=(30, -1))
-        self._sapi_rate.Bind(
-            wx.EVT_SLIDER,
-            lambda e: self._sapi_rate_lbl.SetLabel(str(self._sapi_rate.GetValue())))
-        grid.Add(self._sapi_rate, 1, wx.EXPAND)
-        grid.Add(self._sapi_rate_lbl, 0, wx.ALIGN_CENTER_VERTICAL)
+        Widget refs are stored in self._schema_widgets keyed by:
+          '{prefix}.{key}'        primary widget
+          '{prefix}.{key}__lbl'  slider value label
+          '{prefix}.{key}__ids'  voice ID list ([] = integer-index mode)
+          '{prefix}.{key}__btn'  voice fetch button
+        """
+        p  = wx.Panel(parent)
+        vs = wx.BoxSizer(wx.VERTICAL)
 
-        grid.Add(wx.StaticText(p, label=_("Volume:")), 0, wx.ALIGN_CENTER_VERTICAL)
-        self._sapi_volume = wx.Slider(p, value=100, minValue=0, maxValue=100, name="Volume")
-        self._sapi_volume_lbl = wx.StaticText(p, label="100", size=(30, -1))
-        self._sapi_volume.Bind(
-            wx.EVT_SLIDER,
-            lambda e: self._sapi_volume_lbl.SetLabel(str(self._sapi_volume.GetValue())))
-        grid.Add(self._sapi_volume, 1, wx.EXPAND)
-        grid.Add(self._sapi_volume_lbl, 0, wx.ALIGN_CENTER_VERTICAL)
+        # Strip "mr:" namespace prefix when looking up the engine class.
+        _lookup = prefix[3:] if prefix.startswith("mr:") else prefix
 
-        s.Add(grid, 0, wx.EXPAND)
-        p.SetSizer(s)
+        for f in schema:
+            ft  = f.get("type", "")
+            key = f.get("key", "")
+            lbl = f.get("label", "")
+            wk  = f"{prefix}.{key}"
+
+            if ft == "text":
+                row = wx.BoxSizer(wx.HORIZONTAL)
+                row.Add(wx.StaticText(p, label=_(lbl)),
+                        0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
+                style = wx.TE_PASSWORD if f.get("password") else 0
+                ctrl  = wx.TextCtrl(p, style=style)
+                row.Add(ctrl, 1)
+                self._schema_widgets[wk] = ctrl
+                vs.Add(row, 0, wx.EXPAND | wx.BOTTOM, 4)
+
+            elif ft == "file":
+                vs.Add(wx.StaticText(p, label=_(lbl)), 0, wx.BOTTOM, 2)
+                row      = wx.BoxSizer(wx.HORIZONTAL)
+                ctrl     = wx.TextCtrl(p, style=wx.TE_READONLY)
+                wildcard = f.get("wildcard", "All files (*.*)|*.*")
+                btn      = wx.Button(p, label=_("&Browse…"))
+                btn.Bind(wx.EVT_BUTTON,
+                         lambda e, c=ctrl, w=wildcard: self._schema_browse_file(c, w))
+                row.Add(ctrl, 1, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
+                row.Add(btn,  0)
+                self._schema_widgets[wk] = ctrl
+                vs.Add(row, 0, wx.EXPAND | wx.BOTTOM, 4)
+
+            elif ft == "choice":
+                raw     = f.get("choices", [])
+                labels  = [c[1] if isinstance(c, tuple) else str(c) for c in raw]
+                row     = wx.BoxSizer(wx.HORIZONTAL)
+                row.Add(wx.StaticText(p, label=_(lbl)),
+                        0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
+                ch = wx.Choice(p, choices=labels)
+                if labels:
+                    ch.SetSelection(0)
+                row.Add(ch, 1)
+                self._schema_widgets[wk] = ch
+                vs.Add(row, 0, wx.EXPAND | wx.BOTTOM, 4)
+
+            elif ft == "checkbox":
+                cb = wx.CheckBox(p, label=_(lbl))
+                self._schema_widgets[wk] = cb
+                vs.Add(cb, 0, wx.BOTTOM, 4)
+
+            elif ft == "slider":
+                mn   = f.get("min", 0)
+                mx   = f.get("max", 100)
+                dflt = f.get("default", mn)
+                row  = wx.BoxSizer(wx.HORIZONTAL)
+                row.Add(wx.StaticText(p, label=_(lbl)),
+                        0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
+                sl      = wx.Slider(p, value=dflt, minValue=mn, maxValue=mx)
+                val_lbl = wx.StaticText(p, label=self._fmt_slider_val(dflt, f),
+                                        size=(42, -1))
+                sl.Bind(wx.EVT_SLIDER,
+                        lambda e, s=sl, l=val_lbl, fld=f:
+                            l.SetLabel(self._fmt_slider_val(s.GetValue(), fld)))
+                row.Add(sl,      1)
+                row.Add(val_lbl, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 4)
+                self._schema_widgets[wk]           = sl
+                self._schema_widgets[wk + "__lbl"] = val_lbl
+                vs.Add(row, 0, wx.EXPAND | wx.BOTTOM, 4)
+
+            elif ft == "voice_list":
+                fetch_method   = f.get("fetch")
+                static_choices = f.get("choices")
+
+                if fetch_method:
+                    fetch_btn = wx.Button(p, label=_("&Get Available Voices"))
+                    fetch_btn.Bind(
+                        wx.EVT_BUTTON,
+                        lambda e, pfx=prefix, k=key, fn=fetch_method, b=fetch_btn:
+                            self._schema_fetch_voices(pfx, k, fn, b))
+                    self._schema_widgets[wk + "__btn"] = fetch_btn
+                    vs.Add(fetch_btn, 0, wx.BOTTOM, 4)
+
+                vs.Add(wx.StaticText(p, label=_(lbl)), 0, wx.BOTTOM, 2)
+                lb   = wx.ListBox(p, choices=[], style=wx.LB_SINGLE)
+                ids: list[str] = []
+
+                if static_choices is not None:
+                    if static_choices and isinstance(static_choices[0], tuple):
+                        ids = [c[0] for c in static_choices]
+                        lb.Set([c[1] for c in static_choices])
+                    else:
+                        ids = [str(c) for c in static_choices]
+                        lb.Set([str(c) for c in static_choices])
+                    if static_choices:
+                        lb.SetSelection(0)
+                elif not fetch_method:
+                    # Index mode: populate from the engine's list_voices()
+                    try:
+                        voice_strs = engine_class(_lookup)().list_voices()
+                    except Exception:
+                        voice_strs = []
+                    if not voice_strs:
+                        voice_strs = [_("(no voices found)")]
+                    lb.Set(voice_strs)
+                    lb.SetSelection(0)
+                    # ids stays [] → integer-index storage mode
+
+                self._schema_widgets[wk]           = lb
+                self._schema_widgets[wk + "__ids"] = ids
+                vs.Add(lb, 1, wx.EXPAND | wx.BOTTOM, 4)
+
+            elif ft == "note":
+                txt = wx.StaticText(p, label=_(f.get("text", "")))
+                txt.SetForegroundColour(
+                    wx.SystemSettings.GetColour(wx.SYS_COLOUR_GRAYTEXT))
+                txt.Wrap(440)
+                vs.Add(txt, 0, wx.BOTTOM, 4)
+
+        p.SetSizer(vs)
         return p
 
-    def _build_tts_piper_panel(self) -> wx.Panel:
-        p = wx.Panel(self._tts_book)
-        s = wx.BoxSizer(wx.VERTICAL)
+    def _schema_fetch_voices(self, prefix: str, key: str,
+                             method_name: str, btn: "wx.Button"):
+        _lookup = prefix[3:] if prefix.startswith("mr:") else prefix
+        cls     = engine_class(_lookup)
+        wk      = f"{prefix}.{key}"
+        cfg     = self._schema_get_config(prefix, cls.CONFIG_SCHEMA)
 
-        s.Add(wx.StaticText(p, label=_("Model file  (*.onnx):")), 0, wx.BOTTOM, 4)
-        row = wx.BoxSizer(wx.HORIZONTAL)
-        self._piper_path = wx.TextCtrl(p, value="", style=wx.TE_READONLY,
-                                        name="Piper model file")
-        browse = wx.Button(p, label=_("&Browse…"))
-        browse.Bind(wx.EVT_BUTTON, self._on_browse_piper)
-        row.Add(self._piper_path, 1, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
-        row.Add(browse, 0)
-        s.Add(row, 0, wx.EXPAND | wx.BOTTOM, 6)
-
-        note = wx.StaticText(p, label=_("The *.onnx.json config file must sit next to the model."))
-        note.SetForegroundColour(wx.SystemSettings.GetColour(wx.SYS_COLOUR_GRAYTEXT))
-        s.Add(note, 0)
-        p.SetSizer(s)
-        return p
-
-    def _build_tts_star_panel(self) -> wx.Panel:
-        p = wx.Panel(self._tts_book)
-        s = wx.FlexGridSizer(cols=2, hgap=8, vgap=6)
-        s.AddGrowableCol(1)
-
-        s.Add(wx.StaticText(p, label=_("Server URL:")), 0, wx.ALIGN_CENTER_VERTICAL)
-        self._star_host = wx.TextCtrl(p, value="ws://localhost:4567", name="Star host")
-        s.Add(self._star_host, 1, wx.EXPAND)
-
-        s.Add(wx.StaticText(p, label=_("Voice name:")), 0, wx.ALIGN_CENTER_VERTICAL)
-        self._star_voice = wx.TextCtrl(p, value="", name="Star voice")
-        s.Add(self._star_voice, 1, wx.EXPAND)
-
-        p.SetSizer(s)
-        return p
-
-    def _build_tts_elevenlabs_panel(self) -> wx.Panel:
-        from ..tts.elevenlabs import ElevenLabsEngine
-        p = wx.Panel(self._tts_book)
-        s = wx.BoxSizer(wx.VERTICAL)
-
-        grid = wx.FlexGridSizer(cols=2, hgap=8, vgap=6)
-        grid.AddGrowableCol(1)
-        grid.Add(wx.StaticText(p, label=_("API key:")), 0, wx.ALIGN_CENTER_VERTICAL)
-        self._el_api_key = wx.TextCtrl(p, value="", style=wx.TE_PASSWORD, name="ElevenLabs API key")
-        grid.Add(self._el_api_key, 1, wx.EXPAND)
-        grid.Add(wx.StaticText(p, label=_("Model:")), 0, wx.ALIGN_CENTER_VERTICAL)
-        self._el_model_ch = wx.Choice(p, choices=ElevenLabsEngine.MODELS, name="ElevenLabs model")
-        self._el_model_ch.SetSelection(0)
-        grid.Add(self._el_model_ch, 1, wx.EXPAND)
-        s.Add(grid, 0, wx.EXPAND | wx.BOTTOM, 6)
-
-        self._el_get_voices_btn = wx.Button(p, label=_("&Get Available Voices"))
-        self._el_get_voices_btn.Bind(wx.EVT_BUTTON, self._on_el_get_voices)
-        s.Add(self._el_get_voices_btn, 0, wx.BOTTOM, 4)
-
-        s.Add(wx.StaticText(p, label=_("Voice:")), 0, wx.BOTTOM, 2)
-        self._el_voice_lb = wx.ListBox(p, choices=[], style=wx.LB_SINGLE, name="ElevenLabs voice")
-        self._el_voice_ids: list[str] = []
-        s.Add(self._el_voice_lb, 1, wx.EXPAND | wx.BOTTOM, 6)
-
-        sl_grid = wx.FlexGridSizer(cols=3, hgap=8, vgap=4)
-        sl_grid.AddGrowableCol(1)
-        sl_grid.Add(wx.StaticText(p, label=_("Stability:")), 0, wx.ALIGN_CENTER_VERTICAL)
-        self._el_stability = wx.Slider(p, value=50, minValue=0, maxValue=100, name="Stability")
-        self._el_stability_lbl = wx.StaticText(p, label="0.50", size=(36, -1))
-        self._el_stability.Bind(
-            wx.EVT_SLIDER,
-            lambda e: self._el_stability_lbl.SetLabel(f"{self._el_stability.GetValue()/100:.2f}"))
-        sl_grid.Add(self._el_stability, 1, wx.EXPAND)
-        sl_grid.Add(self._el_stability_lbl, 0, wx.ALIGN_CENTER_VERTICAL)
-
-        sl_grid.Add(wx.StaticText(p, label=_("Similarity:")), 0, wx.ALIGN_CENTER_VERTICAL)
-        self._el_similarity = wx.Slider(p, value=75, minValue=0, maxValue=100, name="Similarity boost")
-        self._el_similarity_lbl = wx.StaticText(p, label="0.75", size=(36, -1))
-        self._el_similarity.Bind(
-            wx.EVT_SLIDER,
-            lambda e: self._el_similarity_lbl.SetLabel(f"{self._el_similarity.GetValue()/100:.2f}"))
-        sl_grid.Add(self._el_similarity, 1, wx.EXPAND)
-        sl_grid.Add(self._el_similarity_lbl, 0, wx.ALIGN_CENTER_VERTICAL)
-
-        sl_grid.Add(wx.StaticText(p, label=_("Speed:")), 0, wx.ALIGN_CENTER_VERTICAL)
-        self._el_speed = wx.Slider(p, value=100, minValue=70, maxValue=120, name="Speed")
-        self._el_speed_lbl = wx.StaticText(p, label="1.00", size=(36, -1))
-        self._el_speed.Bind(
-            wx.EVT_SLIDER,
-            lambda e: self._el_speed_lbl.SetLabel(f"{self._el_speed.GetValue()/100:.2f}"))
-        sl_grid.Add(self._el_speed, 1, wx.EXPAND)
-        sl_grid.Add(self._el_speed_lbl, 0, wx.ALIGN_CENTER_VERTICAL)
-        s.Add(sl_grid, 0, wx.EXPAND)
-
-        p.SetSizer(s)
-        return p
-
-    def _build_tts_openai_panel(self) -> wx.Panel:
-        from ..tts.openai_tts import OpenAITtsEngine
-        p = wx.Panel(self._tts_book)
-        s = wx.BoxSizer(wx.VERTICAL)
-
-        grid = wx.FlexGridSizer(cols=2, hgap=8, vgap=6)
-        grid.AddGrowableCol(1)
-        grid.Add(wx.StaticText(p, label=_("API key:")), 0, wx.ALIGN_CENTER_VERTICAL)
-        self._oai_api_key = wx.TextCtrl(p, value="", style=wx.TE_PASSWORD, name="OpenAI API key")
-        grid.Add(self._oai_api_key, 1, wx.EXPAND)
-        grid.Add(wx.StaticText(p, label=_("Model:")), 0, wx.ALIGN_CENTER_VERTICAL)
-        self._oai_model_ch = wx.Choice(p, choices=OpenAITtsEngine.MODELS, name="OpenAI model")
-        self._oai_model_ch.SetSelection(0)
-        grid.Add(self._oai_model_ch, 1, wx.EXPAND)
-        s.Add(grid, 0, wx.EXPAND | wx.BOTTOM, 6)
-
-        s.Add(wx.StaticText(p, label=_("Voice:")), 0, wx.BOTTOM, 2)
-        self._oai_voice_lb = wx.ListBox(p, choices=OpenAITtsEngine.VOICES,
-                                        style=wx.LB_SINGLE, name="OpenAI voice")
-        self._oai_voice_lb.SetSelection(0)
-        s.Add(self._oai_voice_lb, 1, wx.EXPAND | wx.BOTTOM, 6)
-
-        sl_grid = wx.FlexGridSizer(cols=3, hgap=8, vgap=4)
-        sl_grid.AddGrowableCol(1)
-        sl_grid.Add(wx.StaticText(p, label=_("Speed:")), 0, wx.ALIGN_CENTER_VERTICAL)
-        self._oai_speed = wx.Slider(p, value=100, minValue=25, maxValue=400, name="Speed")
-        self._oai_speed_lbl = wx.StaticText(p, label="1.00×", size=(42, -1))
-        self._oai_speed.Bind(
-            wx.EVT_SLIDER,
-            lambda e: self._oai_speed_lbl.SetLabel(f"{self._oai_speed.GetValue()/100:.2f}×"))
-        sl_grid.Add(self._oai_speed, 1, wx.EXPAND)
-        sl_grid.Add(self._oai_speed_lbl, 0, wx.ALIGN_CENTER_VERTICAL)
-        s.Add(sl_grid, 0, wx.EXPAND)
-
-        p.SetSizer(s)
-        return p
-
-    def _build_tts_gtts_panel(self) -> wx.Panel:
-        from ..tts.gtts import GttsEngine
-        p = wx.Panel(self._tts_book)
-        s = wx.BoxSizer(wx.VERTICAL)
-
-        s.Add(wx.StaticText(p, label=_("Language:")), 0, wx.BOTTOM, 2)
-        self._gtts_langs = GttsEngine.LANGUAGES
-        choices = [f"{code}  —  {label}" for code, label in self._gtts_langs]
-        self._gtts_lang_lb = wx.ListBox(p, choices=choices, style=wx.LB_SINGLE,
-                                         name="Google Translate language")
-        # Default to English
-        default = next((i for i, (c, _) in enumerate(self._gtts_langs) if c == "en"), 0)
-        self._gtts_lang_lb.SetSelection(default)
-        s.Add(self._gtts_lang_lb, 1, wx.EXPAND | wx.BOTTOM, 6)
-
-        self._gtts_slow_cb = wx.CheckBox(p, label=_("Slow speed"))
-        s.Add(self._gtts_slow_cb, 0)
-
-        p.SetSizer(s)
-        return p
-
-    def _build_tts_azure_panel(self) -> wx.Panel:
-        p = wx.Panel(self._tts_book)
-        s = wx.BoxSizer(wx.VERTICAL)
-
-        grid = wx.FlexGridSizer(cols=2, hgap=8, vgap=6)
-        grid.AddGrowableCol(1)
-        grid.Add(wx.StaticText(p, label=_("Subscription key:")), 0, wx.ALIGN_CENTER_VERTICAL)
-        self._az_key = wx.TextCtrl(p, value="", style=wx.TE_PASSWORD, name="Azure key")
-        grid.Add(self._az_key, 1, wx.EXPAND)
-        grid.Add(wx.StaticText(p, label=_("Region (e.g. eastus):")), 0, wx.ALIGN_CENTER_VERTICAL)
-        self._az_region = wx.TextCtrl(p, value="eastus", name="Azure region")
-        grid.Add(self._az_region, 1, wx.EXPAND)
-        s.Add(grid, 0, wx.EXPAND | wx.BOTTOM, 6)
-
-        self._az_get_voices_btn = wx.Button(p, label=_("&Get Available Voices"))
-        self._az_get_voices_btn.Bind(wx.EVT_BUTTON, self._on_az_get_voices)
-        s.Add(self._az_get_voices_btn, 0, wx.BOTTOM, 4)
-
-        s.Add(wx.StaticText(p, label=_("Voice:")), 0, wx.BOTTOM, 2)
-        self._az_voice_lb = wx.ListBox(p, choices=[], style=wx.LB_SINGLE, name="Azure voice")
-        s.Add(self._az_voice_lb, 1, wx.EXPAND)
-
-        p.SetSizer(s)
-        return p
-
-    def _build_tts_google_panel(self) -> wx.Panel:
-        p = wx.Panel(self._tts_book)
-        s = wx.BoxSizer(wx.VERTICAL)
-
-        grid = wx.FlexGridSizer(cols=2, hgap=8, vgap=6)
-        grid.AddGrowableCol(1)
-        grid.Add(wx.StaticText(p, label=_("API key:")), 0, wx.ALIGN_CENTER_VERTICAL)
-        self._goog_api_key = wx.TextCtrl(p, value="", style=wx.TE_PASSWORD,
-                                          name="Google API key")
-        grid.Add(self._goog_api_key, 1, wx.EXPAND)
-        grid.Add(wx.StaticText(p, label=_("Language code:")), 0, wx.ALIGN_CENTER_VERTICAL)
-        self._goog_lang = wx.TextCtrl(p, value="en-US", name="Language code")
-        grid.Add(self._goog_lang, 1, wx.EXPAND)
-        s.Add(grid, 0, wx.EXPAND | wx.BOTTOM, 6)
-
-        self._goog_get_voices_btn = wx.Button(p, label=_("Get A&vailable Voices"))
-        self._goog_get_voices_btn.Bind(wx.EVT_BUTTON, self._on_goog_get_voices)
-        s.Add(self._goog_get_voices_btn, 0, wx.BOTTOM, 4)
-
-        s.Add(wx.StaticText(p, label=_("Voice:")), 0, wx.BOTTOM, 2)
-        self._goog_voice_lb = wx.ListBox(p, choices=[], style=wx.LB_SINGLE,
-                                          name="Google voice")
-        s.Add(self._goog_voice_lb, 1, wx.EXPAND)
-
-        note = wx.StaticText(p, label=_("Leave API key blank to use Application Default Credentials."))
-        note.SetForegroundColour(wx.SystemSettings.GetColour(wx.SYS_COLOUR_GRAYTEXT))
-        note.Wrap(400)
-        s.Add(note, 0, wx.TOP, 4)
-
-        p.SetSizer(s)
-        return p
-
-    def _build_tts_aws_panel(self) -> wx.Panel:
-        p = wx.Panel(self._tts_book)
-        s = wx.BoxSizer(wx.VERTICAL)
-
-        grid = wx.FlexGridSizer(cols=2, hgap=8, vgap=6)
-        grid.AddGrowableCol(1)
-        grid.Add(wx.StaticText(p, label=_("Access key ID:")), 0, wx.ALIGN_CENTER_VERTICAL)
-        self._aws_key_id = wx.TextCtrl(p, value="", name="AWS access key ID")
-        grid.Add(self._aws_key_id, 1, wx.EXPAND)
-        grid.Add(wx.StaticText(p, label=_("Secret access key:")), 0, wx.ALIGN_CENTER_VERTICAL)
-        self._aws_secret = wx.TextCtrl(p, value="", style=wx.TE_PASSWORD, name="AWS secret key")
-        grid.Add(self._aws_secret, 1, wx.EXPAND)
-        grid.Add(wx.StaticText(p, label=_("Region (e.g. us-east-1):")), 0, wx.ALIGN_CENTER_VERTICAL)
-        self._aws_region = wx.TextCtrl(p, value="us-east-1", name="AWS region")
-        grid.Add(self._aws_region, 1, wx.EXPAND)
-        grid.Add(wx.StaticText(p, label=_("Engine:")), 0, wx.ALIGN_CENTER_VERTICAL)
-        self._aws_engine = wx.Choice(p, choices=["neural", "standard"], name="AWS engine")
-        self._aws_engine.SetSelection(0)
-        grid.Add(self._aws_engine, 1, wx.EXPAND)
-        s.Add(grid, 0, wx.EXPAND | wx.BOTTOM, 6)
-
-        self._aws_get_voices_btn = wx.Button(p, label=_("Get Avai&lable Voices"))
-        self._aws_get_voices_btn.Bind(wx.EVT_BUTTON, self._on_aws_get_voices)
-        s.Add(self._aws_get_voices_btn, 0, wx.BOTTOM, 4)
-
-        s.Add(wx.StaticText(p, label=_("Voice ID:")), 0, wx.BOTTOM, 2)
-        self._aws_voice_lb = wx.ListBox(p, choices=[], style=wx.LB_SINGLE, name="AWS voice")
-        s.Add(self._aws_voice_lb, 1, wx.EXPAND)
-
-        p.SetSizer(s)
-        return p
-
-    def _build_tts_edge_panel(self) -> wx.Panel:
-        p = wx.Panel(self._tts_book)
-        s = wx.BoxSizer(wx.VERTICAL)
-
-        self._edge_get_voices_btn = wx.Button(p, label=_("&Get Available Voices"))
-        self._edge_get_voices_btn.Bind(wx.EVT_BUTTON, self._on_edge_get_voices)
-        s.Add(self._edge_get_voices_btn, 0, wx.BOTTOM, 4)
-
-        s.Add(wx.StaticText(p, label=_("Voice:")), 0, wx.BOTTOM, 2)
-        self._edge_voice_lb = wx.ListBox(p, choices=[], style=wx.LB_SINGLE, name="Edge voice")
-        self._edge_voice_ids: list[str] = []
-        s.Add(self._edge_voice_lb, 1, wx.EXPAND | wx.BOTTOM, 6)
-
-        sl_grid = wx.FlexGridSizer(cols=3, hgap=8, vgap=4)
-        sl_grid.AddGrowableCol(1)
-
-        sl_grid.Add(wx.StaticText(p, label=_("Rate:")), 0, wx.ALIGN_CENTER_VERTICAL)
-        self._edge_rate = wx.Slider(p, value=0, minValue=-50, maxValue=100, name="Rate")
-        self._edge_rate_lbl = wx.StaticText(p, label="+0%", size=(42, -1))
-        self._edge_rate.Bind(
-            wx.EVT_SLIDER,
-            lambda e: self._edge_rate_lbl.SetLabel(
-                f"+{self._edge_rate.GetValue()}%" if self._edge_rate.GetValue() >= 0
-                else f"{self._edge_rate.GetValue()}%"))
-        sl_grid.Add(self._edge_rate, 1, wx.EXPAND)
-        sl_grid.Add(self._edge_rate_lbl, 0, wx.ALIGN_CENTER_VERTICAL)
-
-        sl_grid.Add(wx.StaticText(p, label=_("Volume:")), 0, wx.ALIGN_CENTER_VERTICAL)
-        self._edge_volume = wx.Slider(p, value=0, minValue=-50, maxValue=100, name="Volume")
-        self._edge_volume_lbl = wx.StaticText(p, label="+0%", size=(42, -1))
-        self._edge_volume.Bind(
-            wx.EVT_SLIDER,
-            lambda e: self._edge_volume_lbl.SetLabel(
-                f"+{self._edge_volume.GetValue()}%" if self._edge_volume.GetValue() >= 0
-                else f"{self._edge_volume.GetValue()}%"))
-        sl_grid.Add(self._edge_volume, 1, wx.EXPAND)
-        sl_grid.Add(self._edge_volume_lbl, 0, wx.ALIGN_CENTER_VERTICAL)
-
-        sl_grid.Add(wx.StaticText(p, label=_("Pitch:")), 0, wx.ALIGN_CENTER_VERTICAL)
-        self._edge_pitch = wx.Slider(p, value=0, minValue=-50, maxValue=50, name="Pitch")
-        self._edge_pitch_lbl = wx.StaticText(p, label="+0 Hz", size=(42, -1))
-        self._edge_pitch.Bind(
-            wx.EVT_SLIDER,
-            lambda e: self._edge_pitch_lbl.SetLabel(
-                f"+{self._edge_pitch.GetValue()} Hz" if self._edge_pitch.GetValue() >= 0
-                else f"{self._edge_pitch.GetValue()} Hz"))
-        sl_grid.Add(self._edge_pitch, 1, wx.EXPAND)
-        sl_grid.Add(self._edge_pitch_lbl, 0, wx.ALIGN_CENTER_VERTICAL)
-
-        s.Add(sl_grid, 0, wx.EXPAND)
-
-        note = wx.StaticText(p, label=_("Uses Microsoft Edge read-aloud service. Requires internet."))
-        note.SetForegroundColour(wx.SystemSettings.GetColour(wx.SYS_COLOUR_GRAYTEXT))
-        s.Add(note, 0, wx.TOP, 6)
-
-        p.SetSizer(s)
-        return p
-
-    def _on_edge_get_voices(self, _event=None):
-        btn = self._edge_get_voices_btn
         btn.Disable()
         btn.SetLabel(_("Fetching…"))
 
         def _worker():
             pairs, err = [], None
             try:
-                from ..tts.edge import EdgeEngine
-                pairs = EdgeEngine.fetch_voices()
-            except Exception as e:
-                err = str(e)
+                pairs = getattr(cls, method_name)(cfg)
+            except Exception as exc:
+                err = str(exc)
             wx.CallAfter(_done, pairs, err)
 
         def _done(pairs, err):
             if self:
                 if err:
                     wx.MessageBox(f"Failed to fetch voices:\n{err}",
-                                  "Edge TTS", wx.OK | wx.ICON_ERROR, self)
-                self._edge_voice_ids = [vid for vid, _label in pairs]
-                self._edge_voice_lb.Set([label for _vid, label in pairs])
-                if pairs:
-                    self._edge_voice_lb.SetSelection(0)
+                                  _lookup, wx.OK | wx.ICON_ERROR, self)
+                lb = self._schema_widgets.get(wk)
+                if lb is not None:
+                    self._schema_widgets[wk + "__ids"] = [vid for vid, _ in pairs]
+                    lb.Set([lbl for _, lbl in pairs])
+                    if pairs:
+                        lb.SetSelection(0)
                 btn.SetLabel(_("&Get Available Voices"))
                 btn.Enable()
 
-        threading.Thread(target=_worker, daemon=True, name="edge-voices").start()
+        threading.Thread(target=_worker, daemon=True,
+                         name=f"{_lookup}-voices").start()
+
+    def _schema_get_config(self, prefix: str, schema: list) -> dict:
+        """Read current widget values for a given engine prefix into a config dict."""
+        cfg = {}
+        for f in schema:
+            ft  = f.get("type", "")
+            key = f.get("key", "")
+            if not key:
+                continue
+            wk = f"{prefix}.{key}"
+            w  = self._schema_widgets.get(wk)
+            if w is None:
+                continue
+
+            if ft in ("text", "file"):
+                cfg[key] = w.GetValue()
+            elif ft == "choice":
+                sel     = w.GetSelection()
+                choices = f.get("choices", [])
+                if sel >= 0 and sel < len(choices):
+                    c = choices[sel]
+                    cfg[key] = c[0] if isinstance(c, tuple) else c
+                elif choices:
+                    c = choices[0]
+                    cfg[key] = c[0] if isinstance(c, tuple) else c
+                else:
+                    cfg[key] = ""
+            elif ft == "checkbox":
+                cfg[key] = w.GetValue()
+            elif ft == "slider":
+                val   = w.GetValue()
+                scale = f.get("scale")
+                cfg[key] = val / scale if scale else val
+            elif ft == "voice_list":
+                ids = self._schema_widgets.get(wk + "__ids", [])
+                sel = w.GetSelection()
+                if ids:
+                    cfg[key] = (ids[sel]
+                                if sel != wx.NOT_FOUND and sel < len(ids)
+                                else ids[0])
+                else:
+                    cfg[key] = max(0, sel) if sel != wx.NOT_FOUND else 0
+        return cfg
+
+    def _schema_set_config(self, prefix: str, schema: list, cfg: dict):
+        """Set widget values from a config dict for a given engine prefix."""
+        for f in schema:
+            ft  = f.get("type", "")
+            key = f.get("key", "")
+            if not key or key not in cfg:
+                continue
+            wk  = f"{prefix}.{key}"
+            w   = self._schema_widgets.get(wk)
+            if w is None:
+                continue
+            val = cfg[key]
+
+            if ft in ("text", "file"):
+                w.SetValue(str(val) if val is not None else "")
+            elif ft == "choice":
+                choices = f.get("choices", [])
+                ids     = [c[0] if isinstance(c, tuple) else c for c in choices]
+                try:
+                    w.SetSelection(ids.index(val))
+                except ValueError:
+                    if choices:
+                        w.SetSelection(0)
+            elif ft == "checkbox":
+                w.SetValue(bool(val))
+            elif ft == "slider":
+                scale   = f.get("scale")
+                int_val = int(float(val) * scale) if scale else int(val)
+                int_val = max(w.GetMin(), min(w.GetMax(), int_val))
+                w.SetValue(int_val)
+                lbl = self._schema_widgets.get(wk + "__lbl")
+                if lbl:
+                    lbl.SetLabel(self._fmt_slider_val(int_val, f))
+            elif ft == "voice_list":
+                ids = self._schema_widgets.get(wk + "__ids", [])
+                if ids:
+                    try:
+                        w.SetSelection(ids.index(str(val)))
+                    except ValueError:
+                        pass   # voice not yet in list (fetch pending)
+                else:
+                    idx = int(val) if val is not None else 0
+                    if 0 <= idx < w.GetCount():
+                        w.SetSelection(idx)
 
     def _build_mastodon_page(self) -> wx.Panel:
         page  = wx.Panel(self._book)
@@ -1820,205 +1730,25 @@ class _AddSourceDialog(wx.Dialog):
         engine_row = wx.BoxSizer(wx.HORIZONTAL)
         engine_row.Add(wx.StaticText(page, label=_("TTS engine:")),
                        0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
-        self._mr_engine_cb = wx.ComboBox(page, choices=ENGINE_NAMES, value=ENGINE_NAMES[0],
+        _enames = engine_names()
+        self._mr_engine_cb = wx.ComboBox(page, choices=_enames, value=_enames[0],
                                           style=wx.CB_READONLY, name="Mastodon TTS engine")
         self._mr_engine_cb.Bind(wx.EVT_COMBOBOX, self._on_mr_engine)
         engine_row.Add(self._mr_engine_cb, 1)
         sizer.Add(engine_row, 0, wx.EXPAND | wx.BOTTOM, 8)
 
-        # Per-engine credential sub-panels (simplified — no voice picker).
         self._mr_book = wx.Simplebook(page)
-        self._mr_book.AddPage(self._build_mr_sapi(),                      "SAPI 5")
-        self._mr_book.AddPage(self._build_mr_piper(),                    "Piper")
-        self._mr_book.AddPage(self._build_mr_star(),                     "Star")
-        self._mr_book.AddPage(self._build_mr_apikey("el"),   "ElevenLabs")
-        self._mr_book.AddPage(self._build_mr_apikey("oai"),  "OpenAI")
-        self._mr_book.AddPage(self._build_mr_azure(),                    "Azure")
-        self._mr_book.AddPage(self._build_mr_apikey("goog"), "Google Cloud")
-        self._mr_book.AddPage(self._build_mr_gtts(),                     "Google Translate")
-        self._mr_book.AddPage(self._build_mr_aws(),                      "AWS Polly")
-        self._mr_book.AddPage(self._build_mr_edge(),                     "Edge TTS")
+        for _ename in engine_names():
+            _cls = engine_class(_ename)
+            self._mr_book.AddPage(
+                self._build_schema_panel(self._mr_book, _cls.CONFIG_SCHEMA, "mr:" + _ename),
+                _ename)
         for i in range(1, self._mr_book.GetPageCount()):
             self._mr_book.GetPage(i).Disable()
         sizer.Add(self._mr_book, 1, wx.EXPAND)
 
         page.SetSizer(sizer)
         return page
-
-    def _build_mr_sapi(self) -> wx.Panel:
-        from ..tts.sapi import SapiEngine
-        p = wx.Panel(self._mr_book)
-        s = wx.BoxSizer(wx.VERTICAL)
-
-        s.Add(wx.StaticText(p, label=_("Voice:")), 0, wx.BOTTOM, 2)
-        voices = SapiEngine().list_voices() or ["(no SAPI voices found)"]
-        self._mr_sapi_voice_lb = wx.ListBox(p, choices=voices, style=wx.LB_SINGLE,
-                                             name="Mastodon SAPI voice")
-        self._mr_sapi_voice_lb.SetSelection(0)
-        s.Add(self._mr_sapi_voice_lb, 1, wx.EXPAND | wx.BOTTOM, 8)
-
-        grid = wx.FlexGridSizer(cols=3, hgap=8, vgap=4)
-        grid.AddGrowableCol(1)
-
-        grid.Add(wx.StaticText(p, label=_("Rate:")), 0, wx.ALIGN_CENTER_VERTICAL)
-        self._mr_sapi_rate = wx.Slider(p, value=0, minValue=-10, maxValue=10, name="Rate")
-        self._mr_sapi_rate_lbl = wx.StaticText(p, label="0", size=(30, -1))
-        self._mr_sapi_rate.Bind(
-            wx.EVT_SLIDER,
-            lambda e: self._mr_sapi_rate_lbl.SetLabel(str(self._mr_sapi_rate.GetValue())))
-        grid.Add(self._mr_sapi_rate, 1, wx.EXPAND)
-        grid.Add(self._mr_sapi_rate_lbl, 0, wx.ALIGN_CENTER_VERTICAL)
-
-        grid.Add(wx.StaticText(p, label=_("Volume:")), 0, wx.ALIGN_CENTER_VERTICAL)
-        self._mr_sapi_volume = wx.Slider(p, value=100, minValue=0, maxValue=100, name="Volume")
-        self._mr_sapi_volume_lbl = wx.StaticText(p, label="100", size=(30, -1))
-        self._mr_sapi_volume.Bind(
-            wx.EVT_SLIDER,
-            lambda e: self._mr_sapi_volume_lbl.SetLabel(str(self._mr_sapi_volume.GetValue())))
-        grid.Add(self._mr_sapi_volume, 1, wx.EXPAND)
-        grid.Add(self._mr_sapi_volume_lbl, 0, wx.ALIGN_CENTER_VERTICAL)
-
-        s.Add(grid, 0, wx.EXPAND)
-        p.SetSizer(s)
-        return p
-
-    def _build_mr_edge(self) -> wx.Panel:
-        p = wx.Panel(self._mr_book)
-        s = wx.BoxSizer(wx.VERTICAL)
-
-        self._mr_edge_get_btn = wx.Button(p, label=_("&Get Available Voices"))
-        self._mr_edge_get_btn.Bind(wx.EVT_BUTTON, self._on_mr_edge_get_voices)
-        s.Add(self._mr_edge_get_btn, 0, wx.BOTTOM, 4)
-
-        s.Add(wx.StaticText(p, label=_("Voice:")), 0, wx.BOTTOM, 2)
-        self._mr_edge_voice_lb   = wx.ListBox(p, choices=[], style=wx.LB_SINGLE,
-                                               name="Mastodon Edge voice")
-        self._mr_edge_voice_ids: list[str] = []
-        s.Add(self._mr_edge_voice_lb, 1, wx.EXPAND | wx.BOTTOM, 6)
-
-        sl = wx.FlexGridSizer(cols=3, hgap=8, vgap=4)
-        sl.AddGrowableCol(1)
-
-        sl.Add(wx.StaticText(p, label=_("Rate:")), 0, wx.ALIGN_CENTER_VERTICAL)
-        self._mr_edge_rate = wx.Slider(p, value=0, minValue=-50, maxValue=100, name="Rate")
-        self._mr_edge_rate_lbl = wx.StaticText(p, label="+0%", size=(42, -1))
-        self._mr_edge_rate.Bind(
-            wx.EVT_SLIDER,
-            lambda e: self._mr_edge_rate_lbl.SetLabel(
-                f"+{self._mr_edge_rate.GetValue()}%" if self._mr_edge_rate.GetValue() >= 0
-                else f"{self._mr_edge_rate.GetValue()}%"))
-        sl.Add(self._mr_edge_rate, 1, wx.EXPAND)
-        sl.Add(self._mr_edge_rate_lbl, 0, wx.ALIGN_CENTER_VERTICAL)
-
-        sl.Add(wx.StaticText(p, label=_("Volume:")), 0, wx.ALIGN_CENTER_VERTICAL)
-        self._mr_edge_volume = wx.Slider(p, value=0, minValue=-50, maxValue=100, name="Volume")
-        self._mr_edge_volume_lbl = wx.StaticText(p, label="+0%", size=(42, -1))
-        self._mr_edge_volume.Bind(
-            wx.EVT_SLIDER,
-            lambda e: self._mr_edge_volume_lbl.SetLabel(
-                f"+{self._mr_edge_volume.GetValue()}%" if self._mr_edge_volume.GetValue() >= 0
-                else f"{self._mr_edge_volume.GetValue()}%"))
-        sl.Add(self._mr_edge_volume, 1, wx.EXPAND)
-        sl.Add(self._mr_edge_volume_lbl, 0, wx.ALIGN_CENTER_VERTICAL)
-
-        sl.Add(wx.StaticText(p, label=_("Pitch:")), 0, wx.ALIGN_CENTER_VERTICAL)
-        self._mr_edge_pitch = wx.Slider(p, value=0, minValue=-50, maxValue=50, name="Pitch")
-        self._mr_edge_pitch_lbl = wx.StaticText(p, label="+0 Hz", size=(42, -1))
-        self._mr_edge_pitch.Bind(
-            wx.EVT_SLIDER,
-            lambda e: self._mr_edge_pitch_lbl.SetLabel(
-                f"+{self._mr_edge_pitch.GetValue()} Hz" if self._mr_edge_pitch.GetValue() >= 0
-                else f"{self._mr_edge_pitch.GetValue()} Hz"))
-        sl.Add(self._mr_edge_pitch, 1, wx.EXPAND)
-        sl.Add(self._mr_edge_pitch_lbl, 0, wx.ALIGN_CENTER_VERTICAL)
-
-        s.Add(sl, 0, wx.EXPAND)
-        note = wx.StaticText(p, label=_("Uses Microsoft Edge read-aloud service. Requires internet."))
-        note.SetForegroundColour(wx.SystemSettings.GetColour(wx.SYS_COLOUR_GRAYTEXT))
-        s.Add(note, 0, wx.TOP, 6)
-        p.SetSizer(s)
-        return p
-
-    def _build_mr_empty(self) -> wx.Panel:
-        p = wx.Panel(self._mr_book)
-        p.SetSizer(wx.BoxSizer(wx.VERTICAL))
-        return p
-
-    def _build_mr_piper(self) -> wx.Panel:
-        p = wx.Panel(self._mr_book)
-        s = wx.BoxSizer(wx.VERTICAL)
-        s.Add(wx.StaticText(p, label=_("Model file (*.onnx):")), 0, wx.BOTTOM, 4)
-        row = wx.BoxSizer(wx.HORIZONTAL)
-        self._mr_piper_path = wx.TextCtrl(p, style=wx.TE_READONLY, name="Piper model")
-        btn = wx.Button(p, label=_("&Browse…"))
-        btn.Bind(wx.EVT_BUTTON, self._on_mr_browse_piper)
-        row.Add(self._mr_piper_path, 1, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
-        row.Add(btn, 0)
-        s.Add(row, 0, wx.EXPAND)
-        p.SetSizer(s)
-        return p
-
-    def _build_mr_star(self) -> wx.Panel:
-        p = wx.Panel(self._mr_book)
-        s = wx.FlexGridSizer(cols=2, hgap=8, vgap=6)
-        s.AddGrowableCol(1)
-        s.Add(wx.StaticText(p, label=_("Server URL:")), 0, wx.ALIGN_CENTER_VERTICAL)
-        self._mr_star_host = wx.TextCtrl(p, value="ws://localhost:4567")
-        s.Add(self._mr_star_host, 1, wx.EXPAND)
-        s.Add(wx.StaticText(p, label=_("Voice name:")), 0, wx.ALIGN_CENTER_VERTICAL)
-        self._mr_star_voice = wx.TextCtrl(p, value="")
-        s.Add(self._mr_star_voice, 1, wx.EXPAND)
-        p.SetSizer(s)
-        return p
-
-    def _build_mr_apikey(self, tag: str) -> wx.Panel:
-        """Single API key field; tag is a short string to make attribute names unique."""
-        p = wx.Panel(self._mr_book)
-        s = wx.BoxSizer(wx.HORIZONTAL)
-        s.Add(wx.StaticText(p, label=_("API key:")), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
-        ctrl = wx.TextCtrl(p, style=wx.TE_PASSWORD, name=f"{tag} API key")
-        s.Add(ctrl, 1)
-        setattr(self, f"_mr_{tag}_key", ctrl)
-        p.SetSizer(s)
-        return p
-
-    def _build_mr_azure(self) -> wx.Panel:
-        p = wx.Panel(self._mr_book)
-        s = wx.FlexGridSizer(cols=2, hgap=8, vgap=6)
-        s.AddGrowableCol(1)
-        s.Add(wx.StaticText(p, label=_("Subscription key:")), 0, wx.ALIGN_CENTER_VERTICAL)
-        self._mr_az_key = wx.TextCtrl(p, style=wx.TE_PASSWORD)
-        s.Add(self._mr_az_key, 1, wx.EXPAND)
-        s.Add(wx.StaticText(p, label=_("Region:")), 0, wx.ALIGN_CENTER_VERTICAL)
-        self._mr_az_region = wx.TextCtrl(p, value="eastus")
-        s.Add(self._mr_az_region, 1, wx.EXPAND)
-        p.SetSizer(s)
-        return p
-
-    def _build_mr_gtts(self) -> wx.Panel:
-        p = wx.Panel(self._mr_book)
-        s = wx.BoxSizer(wx.HORIZONTAL)
-        s.Add(wx.StaticText(p, label=_("Language code:")), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
-        self._mr_gtts_lang = wx.TextCtrl(p, value="en")
-        s.Add(self._mr_gtts_lang, 1)
-        p.SetSizer(s)
-        return p
-
-    def _build_mr_aws(self) -> wx.Panel:
-        p = wx.Panel(self._mr_book)
-        s = wx.FlexGridSizer(cols=2, hgap=8, vgap=6)
-        s.AddGrowableCol(1)
-        s.Add(wx.StaticText(p, label=_("Access key ID:")), 0, wx.ALIGN_CENTER_VERTICAL)
-        self._mr_aws_key = wx.TextCtrl(p)
-        s.Add(self._mr_aws_key, 1, wx.EXPAND)
-        s.Add(wx.StaticText(p, label=_("Secret key:")), 0, wx.ALIGN_CENTER_VERTICAL)
-        self._mr_aws_secret = wx.TextCtrl(p, style=wx.TE_PASSWORD)
-        s.Add(self._mr_aws_secret, 1, wx.EXPAND)
-        s.Add(wx.StaticText(p, label=_("Region:")), 0, wx.ALIGN_CENTER_VERTICAL)
-        self._mr_aws_region = wx.TextCtrl(p, value="us-east-1")
-        s.Add(self._mr_aws_region, 1, wx.EXPAND)
-        p.SetSizer(s)
-        return p
 
     def _on_mr_engine(self, _event=None):
         old = self._mr_book.GetSelection()
@@ -2029,42 +1759,6 @@ class _AddSourceDialog(wx.Dialog):
         self._mr_book.GetPage(new).Enable()
         self.Layout()
         self._mr_engine_cb.SetFocus()
-
-    def _on_mr_browse_piper(self, _event=None):
-        dlg = wx.FileDialog(self, "Select Piper model",
-                            wildcard="Piper model (*.onnx)|*.onnx|All files (*.*)|*.*",
-                            style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST)
-        if dlg.ShowModal() == wx.ID_OK:
-            self._mr_piper_path.SetValue(dlg.GetPath())
-        dlg.Destroy()
-
-    def _on_mr_edge_get_voices(self, _event=None):
-        btn = self._mr_edge_get_btn
-        btn.Disable()
-        btn.SetLabel(_("Fetching…"))
-
-        def _worker():
-            pairs, err = [], None
-            try:
-                from ..tts.edge import EdgeEngine
-                pairs = EdgeEngine.fetch_voices()
-            except Exception as e:
-                err = str(e)
-            wx.CallAfter(_done, pairs, err)
-
-        def _done(pairs, err):
-            if self:
-                if err:
-                    wx.MessageBox(f"Failed to fetch voices:\n{err}",
-                                  "Edge TTS", wx.OK | wx.ICON_ERROR, self)
-                self._mr_edge_voice_ids = [vid for vid, _label in pairs]
-                self._mr_edge_voice_lb.Set([label for _vid, label in pairs])
-                if pairs:
-                    self._mr_edge_voice_lb.SetSelection(0)
-                btn.SetLabel(_("&Get Available Voices"))
-                btn.Enable()
-
-        threading.Thread(target=_worker, daemon=True, name="mr-edge-voices").start()
 
     def _build_sounds_page(self) -> wx.Panel:
         page  = wx.Panel(self._book)
@@ -2135,138 +1829,6 @@ class _AddSourceDialog(wx.Dialog):
         self._tts_book.GetPage(new).Enable()
         self._tts_engine_cb.SetFocus()
 
-    def _on_az_get_voices(self, _event=None):
-        key    = self._az_key.GetValue().strip()
-        region = self._az_region.GetValue().strip()
-        if not key or not region:
-            wx.MessageBox(_("Enter subscription key and region first."),
-                          _("Azure TTS"), wx.OK | wx.ICON_WARNING, self)
-            return
-        btn = self._az_get_voices_btn
-        btn.Disable()
-        btn.SetLabel(_("Fetching…"))
-
-        def _worker():
-            voices, err = [], None
-            try:
-                from ..tts.azure import AzureEngine
-                voices = AzureEngine.fetch_voices(key, region)
-            except Exception as e:
-                err = str(e)
-            wx.CallAfter(_done, voices, err)
-
-        def _done(voices, err):
-            if self:
-                if err:
-                    wx.MessageBox(f"Failed to fetch voices:\n{err}",
-                                  "Azure TTS", wx.OK | wx.ICON_ERROR, self)
-                self._az_voice_lb.Set(voices or [])
-                if voices:
-                    self._az_voice_lb.SetSelection(0)
-                btn.SetLabel(_("&Get Available Voices"))
-                btn.Enable()
-
-        threading.Thread(target=_worker, daemon=True, name="az-voices").start()
-
-    def _on_goog_get_voices(self, _event=None):
-        api_key = self._goog_api_key.GetValue().strip()
-        lang    = self._goog_lang.GetValue().strip()
-        btn     = self._goog_get_voices_btn
-        btn.Disable()
-        btn.SetLabel(_("Fetching…"))
-
-        def _worker():
-            voices, err = [], None
-            try:
-                from ..tts.google import GoogleEngine
-                voices = GoogleEngine.fetch_voices(api_key, lang)
-            except Exception as e:
-                err = str(e)
-            wx.CallAfter(_done, voices, err)
-
-        def _done(voices, err):
-            if self:
-                if err:
-                    wx.MessageBox(f"Failed to fetch voices:\n{err}",
-                                  "Google TTS", wx.OK | wx.ICON_ERROR, self)
-                self._goog_voice_lb.Set(voices or [])
-                if voices:
-                    self._goog_voice_lb.SetSelection(0)
-                btn.SetLabel(_("Get A&vailable Voices"))
-                btn.Enable()
-
-        threading.Thread(target=_worker, daemon=True, name="goog-voices").start()
-
-    def _on_aws_get_voices(self, _event=None):
-        key_id = self._aws_key_id.GetValue().strip()
-        secret = self._aws_secret.GetValue().strip()
-        region = self._aws_region.GetValue().strip()
-        engines = ["neural", "standard"]
-        eng_sel = self._aws_engine.GetSelection()
-        engine  = engines[eng_sel] if eng_sel >= 0 else "neural"
-        if not key_id or not secret:
-            wx.MessageBox(_("Enter access key ID and secret access key first."),
-                          _("AWS Polly"), wx.OK | wx.ICON_WARNING, self)
-            return
-        btn = self._aws_get_voices_btn
-        btn.Disable()
-        btn.SetLabel(_("Fetching…"))
-
-        def _worker():
-            voices, err = [], None
-            try:
-                from ..tts.aws import AwsEngine
-                voices = AwsEngine.fetch_voices(key_id, secret, region, engine)
-            except Exception as e:
-                err = str(e)
-            wx.CallAfter(_done, voices, err)
-
-        def _done(voices, err):
-            if self:
-                if err:
-                    wx.MessageBox(f"Failed to fetch voices:\n{err}",
-                                  "AWS Polly", wx.OK | wx.ICON_ERROR, self)
-                self._aws_voice_lb.Set(voices or [])
-                if voices:
-                    self._aws_voice_lb.SetSelection(0)
-                btn.SetLabel(_("Get Avai&lable Voices"))
-                btn.Enable()
-
-        threading.Thread(target=_worker, daemon=True, name="aws-voices").start()
-
-    def _on_el_get_voices(self, _event=None):
-        api_key = self._el_api_key.GetValue().strip()
-        if not api_key:
-            wx.MessageBox(_("Enter your ElevenLabs API key first."),
-                          _("ElevenLabs"), wx.OK | wx.ICON_WARNING, self)
-            return
-        btn = self._el_get_voices_btn
-        btn.Disable()
-        btn.SetLabel(_("Fetching…"))
-
-        def _worker():
-            pairs, err = [], None
-            try:
-                from ..tts.elevenlabs import ElevenLabsEngine
-                pairs = ElevenLabsEngine.fetch_voices(api_key)
-            except Exception as e:
-                err = str(e)
-            wx.CallAfter(_done, pairs, err)
-
-        def _done(pairs, err):
-            if self:
-                if err:
-                    wx.MessageBox(f"Failed to fetch voices:\n{err}",
-                                  "ElevenLabs", wx.OK | wx.ICON_ERROR, self)
-                self._el_voice_ids = [vid for vid, _name in pairs]
-                self._el_voice_lb.Set([name for _vid, name in pairs])
-                if pairs:
-                    self._el_voice_lb.SetSelection(0)
-                btn.SetLabel(_("&Get Available Voices"))
-                btn.Enable()
-
-        threading.Thread(target=_worker, daemon=True, name="el-voices").start()
-
     def _on_tts_preview(self, _event=None):
         name = self._tts_engine_cb.GetValue()
         key  = engine_key(name)
@@ -2305,88 +1867,7 @@ class _AddSourceDialog(wx.Dialog):
     def _tts_page_config(self) -> dict:
         """Read current engine-specific widget values into a config dict."""
         name = self._tts_engine_cb.GetValue()
-        if name == "SAPI 5":
-            vi = self._sapi_voice_lb.GetSelection()
-            return {"voice_index": max(0, vi),
-                    "rate":        self._sapi_rate.GetValue(),
-                    "volume":      self._sapi_volume.GetValue()}
-        if name == "Piper":
-            return {"model_path": self._piper_path.GetValue()}
-        if name == "Star":
-            return {"host":  self._star_host.GetValue(),
-                    "voice": self._star_voice.GetValue()}
-        if name == "ElevenLabs":
-            from ..tts.elevenlabs import ElevenLabsEngine, _DEFAULT_VOICE_ID, _DEFAULT_MODEL
-            sel = self._el_voice_lb.GetSelection()
-            voice_id = (self._el_voice_ids[sel]
-                        if sel != wx.NOT_FOUND and sel < len(self._el_voice_ids)
-                        else _DEFAULT_VOICE_ID)
-            model_sel = self._el_model_ch.GetSelection()
-            model_id  = (ElevenLabsEngine.MODELS[model_sel]
-                         if model_sel >= 0 else _DEFAULT_MODEL)
-            return {"api_key":          self._el_api_key.GetValue(),
-                    "voice_id":         voice_id,
-                    "model_id":         model_id,
-                    "stability":        self._el_stability.GetValue() / 100.0,
-                    "similarity_boost": self._el_similarity.GetValue() / 100.0,
-                    "speed":            self._el_speed.GetValue() / 100.0}
-        if name == "OpenAI":
-            from ..tts.openai_tts import OpenAITtsEngine
-            sel      = self._oai_voice_lb.GetSelection()
-            voice    = (OpenAITtsEngine.VOICES[sel]
-                        if sel != wx.NOT_FOUND else "alloy")
-            mod_sel  = self._oai_model_ch.GetSelection()
-            model    = (OpenAITtsEngine.MODELS[mod_sel]
-                        if mod_sel >= 0 else "tts-1")
-            return {"api_key": self._oai_api_key.GetValue(),
-                    "model":   model,
-                    "voice":   voice,
-                    "speed":   self._oai_speed.GetValue() / 100.0}
-        if name == "Azure":
-            sel = self._az_voice_lb.GetSelection()
-            voice = self._az_voice_lb.GetString(sel) if sel != wx.NOT_FOUND else "en-US-JennyNeural"
-            return {"subscription_key": self._az_key.GetValue(),
-                    "region":           self._az_region.GetValue(),
-                    "voice_name":       voice}
-        if name == "Google Cloud":
-            sel = self._goog_voice_lb.GetSelection()
-            voice = self._goog_voice_lb.GetString(sel) if sel != wx.NOT_FOUND else "en-US-Wavenet-C"
-            return {"api_key":       self._goog_api_key.GetValue(),
-                    "language_code": self._goog_lang.GetValue(),
-                    "voice_name":    voice}
-        if name == "Google Translate":
-            sel = self._gtts_lang_lb.GetSelection()
-            lang = self._gtts_langs[sel][0] if sel != wx.NOT_FOUND else "en"
-            return {"lang": lang, "slow": self._gtts_slow_cb.GetValue()}
-        if name == "AWS Polly":
-            engines = ["neural", "standard"]
-            eng_sel = self._aws_engine.GetSelection()
-            sel = self._aws_voice_lb.GetSelection()
-            voice = self._aws_voice_lb.GetString(sel) if sel != wx.NOT_FOUND else "Joanna"
-            return {"access_key_id":     self._aws_key_id.GetValue(),
-                    "secret_access_key": self._aws_secret.GetValue(),
-                    "region":            self._aws_region.GetValue(),
-                    "voice_id":          voice,
-                    "engine":            engines[eng_sel] if eng_sel >= 0 else "neural"}
-        if name == "Edge TTS":
-            from ..tts.edge import _DEFAULT_VOICE
-            sel = self._edge_voice_lb.GetSelection()
-            voice = (self._edge_voice_ids[sel]
-                     if sel != wx.NOT_FOUND and sel < len(self._edge_voice_ids)
-                     else _DEFAULT_VOICE)
-            return {"voice":  voice,
-                    "rate":   self._edge_rate.GetValue(),
-                    "volume": self._edge_volume.GetValue(),
-                    "pitch":  self._edge_pitch.GetValue()}
-        return {}
-
-    def _on_browse_piper(self, _event=None):
-        dlg = wx.FileDialog(self, "Select Piper model",
-                            wildcard="Piper model (*.onnx)|*.onnx|All files (*.*)|*.*",
-                            style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST)
-        if dlg.ShowModal() == wx.ID_OK:
-            self._piper_path.SetValue(dlg.GetPath())
-        dlg.Destroy()
+        return self._schema_get_config(name, engine_class(name).CONFIG_SCHEMA)
 
     # ── event handlers ────────────────────────────────────────────────────────
 
@@ -2455,51 +1936,7 @@ class _AddSourceDialog(wx.Dialog):
         name = engine_display_name(eng_key_str)
         if self._tts_engine_cb.SetStringSelection(name):
             self._on_tts_engine()
-        if name == "SAPI 5":
-            vi = cfg.get("voice_index", 0)
-            if 0 <= vi < self._sapi_voice_lb.GetCount():
-                self._sapi_voice_lb.SetSelection(vi)
-            self._sapi_rate.SetValue(cfg.get("rate", 0))
-            self._sapi_volume.SetValue(cfg.get("volume", 100))
-        elif name == "Piper":
-            self._piper_path.SetValue(cfg.get("model_path", ""))
-        elif name == "Star":
-            self._star_host.SetValue(cfg.get("host", ""))
-            self._star_voice.SetValue(cfg.get("voice", ""))
-        elif name == "ElevenLabs":
-            self._el_api_key.SetValue(cfg.get("api_key", ""))
-            stab = int(cfg.get("stability", 0.5) * 100)
-            sim  = int(cfg.get("similarity_boost", 0.75) * 100)
-            spd  = int(cfg.get("speed", 1.0) * 100)
-            self._el_stability.SetValue(max(0,   min(100, stab)))
-            self._el_similarity.SetValue(max(0,  min(100, sim)))
-            self._el_speed.SetValue(max(70, min(120, spd)))
-            self._el_stability_lbl.SetLabel(f"{stab/100:.2f}")
-            self._el_similarity_lbl.SetLabel(f"{sim/100:.2f}")
-            self._el_speed_lbl.SetLabel(f"{spd/100:.2f}")
-        elif name == "OpenAI":
-            self._oai_api_key.SetValue(cfg.get("api_key", ""))
-        elif name == "Azure":
-            self._az_key.SetValue(cfg.get("subscription_key", ""))
-            self._az_region.SetValue(cfg.get("region", ""))
-        elif name == "Google Cloud":
-            self._goog_api_key.SetValue(cfg.get("api_key", ""))
-            self._goog_lang.SetValue(cfg.get("language_code", ""))
-        elif name == "Google Translate":
-            lang = cfg.get("lang", "en")
-            for i, (code, _) in enumerate(self._gtts_langs):
-                if code == lang:
-                    self._gtts_lang_lb.SetSelection(i)
-                    break
-            self._gtts_slow_cb.SetValue(cfg.get("slow", False))
-        elif name == "AWS Polly":
-            self._aws_key_id.SetValue(cfg.get("access_key_id", ""))
-            self._aws_secret.SetValue(cfg.get("secret_access_key", ""))
-            self._aws_region.SetValue(cfg.get("region", ""))
-        elif name == "Edge TTS":
-            self._edge_rate.SetValue(cfg.get("rate", 0))
-            self._edge_volume.SetValue(cfg.get("volume", 100))
-            self._edge_pitch.SetValue(cfg.get("pitch", 0))
+        self._schema_set_config(name, engine_class(name).CONFIG_SCHEMA, cfg)
         self._tts_template.SetValue(template or ChatTtsCapture._DEFAULT_TEMPLATE)
 
     def _preload_sounds(self, pack: str, enabled_events: list):
@@ -2515,34 +1952,7 @@ class _AddSourceDialog(wx.Dialog):
         name = engine_display_name(eng_key_str)
         if self._mr_engine_cb.SetStringSelection(name):
             self._on_mr_engine()
-        if name == "SAPI 5":
-            vi = cfg.get("voice_index", 0)
-            if 0 <= vi < self._mr_sapi_voice_lb.GetCount():
-                self._mr_sapi_voice_lb.SetSelection(vi)
-            self._mr_sapi_rate.SetValue(cfg.get("rate", 0))
-            self._mr_sapi_volume.SetValue(cfg.get("volume", 100))
-        elif name == "Piper":
-            self._mr_piper_path.SetValue(cfg.get("model_path", ""))
-        elif name == "Star":
-            self._mr_star_host.SetValue(cfg.get("host", ""))
-            self._mr_star_voice.SetValue(cfg.get("voice", ""))
-        elif name == "ElevenLabs":
-            self._mr_el_key.SetValue(cfg.get("api_key", ""))
-        elif name == "OpenAI":
-            self._mr_oai_key.SetValue(cfg.get("api_key", ""))
-        elif name == "Azure":
-            self._mr_az_key.SetValue(cfg.get("subscription_key", ""))
-            self._mr_az_region.SetValue(cfg.get("region", ""))
-        elif name == "Google Translate":
-            self._mr_gtts_lang.SetValue(cfg.get("lang", "en"))
-        elif name == "AWS Polly":
-            self._mr_aws_key.SetValue(cfg.get("access_key_id", ""))
-            self._mr_aws_secret.SetValue(cfg.get("secret_access_key", ""))
-            self._mr_aws_region.SetValue(cfg.get("region", ""))
-        elif name == "Edge TTS":
-            self._mr_edge_rate.SetValue(cfg.get("rate", 0))
-            self._mr_edge_volume.SetValue(cfg.get("volume", 100))
-            self._mr_edge_pitch.SetValue(cfg.get("pitch", 0))
+        self._schema_set_config("mr:" + name, engine_class(name).CONFIG_SCHEMA, cfg)
 
     # ── event handlers ────────────────────────────────────────────────────────
 
@@ -2630,39 +2040,7 @@ class _AddSourceDialog(wx.Dialog):
         """Returns {'engine': key, 'engine_config': {...}} for Mastodon Replies sources."""
         name = self._mr_engine_cb.GetValue()
         key  = engine_key(name)
-        cfg: dict = {}
-        if name == "SAPI 5":
-            idx = self._mr_sapi_voice_lb.GetSelection()
-            cfg["voice_index"] = max(0, idx)
-            cfg["rate"]        = self._mr_sapi_rate.GetValue()
-            cfg["volume"]      = self._mr_sapi_volume.GetValue()
-        elif name == "ElevenLabs":
-            cfg["api_key"] = self._mr_el_key.GetValue()
-        elif name == "OpenAI":
-            cfg["api_key"] = self._mr_oai_key.GetValue()
-        elif name == "Google Cloud":
-            cfg["api_key"] = self._mr_goog_key.GetValue()
-        elif name == "Azure":
-            cfg["subscription_key"] = self._mr_az_key.GetValue()
-            cfg["region"]           = self._mr_az_region.GetValue()
-        elif name == "Piper":
-            cfg["model_path"] = self._mr_piper_path.GetValue()
-        elif name == "Star":
-            cfg["host"]  = self._mr_star_host.GetValue()
-            cfg["voice"] = self._mr_star_voice.GetValue()
-        elif name == "Google Translate":
-            cfg["lang"] = self._mr_gtts_lang.GetValue()
-        elif name == "AWS Polly":
-            cfg["access_key_id"]     = self._mr_aws_key.GetValue()
-            cfg["secret_access_key"] = self._mr_aws_secret.GetValue()
-            cfg["region"]            = self._mr_aws_region.GetValue()
-        elif name == "Edge TTS":
-            idx = self._mr_edge_voice_lb.GetSelection()
-            if idx != wx.NOT_FOUND and idx < len(self._mr_edge_voice_ids):
-                cfg["voice"] = self._mr_edge_voice_ids[idx]
-            cfg["rate"]   = self._mr_edge_rate.GetValue()
-            cfg["volume"] = self._mr_edge_volume.GetValue()
-            cfg["pitch"]  = self._mr_edge_pitch.GetValue()
+        cfg  = self._schema_get_config("mr:" + name, engine_class(name).CONFIG_SCHEMA)
         return {"engine": key, "engine_config": cfg}
 
     def selected_device(self) -> dict | None:

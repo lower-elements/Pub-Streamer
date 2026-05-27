@@ -1,6 +1,6 @@
-"""ElevenLabs TTS engine via REST API."""
+﻿"""ElevenLabs TTS engine via REST API."""
 
-from .base import TtsEngine, decode_audio_bytes
+from pubstreamer.tts.base import TtsEngine, decode_audio_bytes
 
 _API_BASE         = "https://api.elevenlabs.io/v1"
 _DEFAULT_VOICE_ID = "21m00Tcm4TlvDq8ikWAM"   # Rachel
@@ -16,6 +16,20 @@ class ElevenLabsEngine(TtsEngine):
         "eleven_turbo_v2_5",
         "eleven_turbo_v2",
         "eleven_monolingual_v1",
+    ]
+
+    CONFIG_SCHEMA = [
+        {"key": "api_key",          "label": "API key:",    "type": "text", "password": True},
+        {"key": "model_id",         "label": "Model:",      "type": "choice",
+         "choices": MODELS},
+        {"key": "voice_id",         "label": "Voice:",      "type": "voice_list",
+         "fetch": "fetch_voices"},
+        {"key": "stability",        "label": "Stability:",  "type": "slider",
+         "min": 0, "max": 100, "scale": 100.0, "default": 50},
+        {"key": "similarity_boost", "label": "Similarity:", "type": "slider",
+         "min": 0, "max": 100, "scale": 100.0, "default": 75},
+        {"key": "speed",            "label": "Speed:",      "type": "slider",
+         "min": 70, "max": 120, "scale": 100.0, "default": 100},
     ]
 
     def __init__(self, api_key: str = "", voice_id: str = _DEFAULT_VOICE_ID,
@@ -62,9 +76,10 @@ class ElevenLabsEngine(TtsEngine):
             print(f"[ElevenLabs] synthesize error: {e}", flush=True)
             return None
 
-    @staticmethod
-    def fetch_voices(api_key: str) -> list[tuple[str, str]]:
+    @classmethod
+    def fetch_voices(cls, config: dict) -> list[tuple[str, str]]:
         """Return sorted list of (voice_id, display_name) tuples."""
+        api_key = config.get("api_key", "")
         try:
             import httpx
             resp = httpx.get(

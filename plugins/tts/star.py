@@ -1,13 +1,18 @@
-"""Star TTS coagulator client — synthesises via a running Star WebSocket server."""
+﻿"""Star TTS coagulator client — synthesises via a running Star WebSocket server."""
 
 import json
 import struct
 
-from .base import TtsEngine, decode_audio_bytes
+from pubstreamer.tts.base import TtsEngine, decode_audio_bytes
 
 
 class StarEngine(TtsEngine):
     name = "Star"
+
+    CONFIG_SCHEMA = [
+        {"key": "host",  "label": "Server URL:",  "type": "text"},
+        {"key": "voice", "label": "Voice name:",  "type": "text"},
+    ]
 
     def __init__(self, host: str = "ws://localhost:4567", voice: str = ""):
         self.host  = host
