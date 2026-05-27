@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+*.egg-info/
+dist/
+build/
+
+# Config (contains user-specific paths and credentials)
+config.ini
+
+# Native CMake build cache — intermediate files only, not the final binaries.
+# The compiled DLLs and exe in native/dist/ ARE committed to the repo.
+native/**/build*/
+native/**/CMakeFiles/
+native/**/CMakeCache.txt
+native/**/*.cmake
+native/**/*.vcxproj
+native/**/*.vcxproj.filters
+native/**/*.sln
+native/**/Makefile
+
+# Scratch / test artefacts
+/test_*.py
+/*.wav
+C*Temptest*.txt
+nuitka-crash-report.xml
+hook_audio.obj
+*.obj
+
+# IDE / OS
+.vscode/
+.idea/
+*.suo
+*.user
+Thumbs.db
+Desktop.ini

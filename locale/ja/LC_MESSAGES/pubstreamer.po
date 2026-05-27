@@ -1,0 +1,802 @@
+# Japanese translations for Pub-Streamer
+# Copyright (C) 2024 Pub-Streamer contributors
+#
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Language: ja\n"
+
+# ── app.py / main window ──────────────────────────────────────────────────────
+
+msgid "Sources"
+msgstr "ソース"
+
+msgid "Stream"
+msgstr "配信"
+
+msgid "Chat"
+msgstr "チャット"
+
+msgid "Mastodon"
+msgstr "Mastodon"
+
+msgid "Recording"
+msgstr "録音"
+
+msgid "&File"
+msgstr "ファイル(&F)"
+
+msgid "&Save config\tCtrl+S"
+msgstr "設定を保存(&S)\tCtrl+S"
+
+msgid "E&xit"
+msgstr "終了(&X)"
+
+msgid "&Help"
+msgstr "ヘルプ(&H)"
+
+msgid "&About"
+msgstr "バージョン情報(&A)"
+
+msgid "&Language"
+msgstr "言語(&L)"
+
+msgid "System Default"
+msgstr "システム既定"
+
+msgid "English"
+msgstr "English"
+
+msgid "Ready"
+msgstr "準備完了"
+
+msgid "Connecting to Icecast…"
+msgstr "Icecastに接続中…"
+
+msgid "Streaming"
+msgstr "配信中"
+
+msgid "Stream stopped"
+msgstr "配信停止"
+
+msgid "Error: ffmpeg not found — add it to PATH"
+msgstr "エラー: ffmpegがPATHにありません"
+
+msgid "About Pub-Streamer"
+msgstr "Pub-Streamerについて"
+
+msgid ""
+"Pub-Streamer\n"
+"\n"
+"Lightweight all-in-one Audio Pub streaming client.\n"
+"Captures mic and per-app audio, applies VST effects,\n"
+"encodes via ffmpeg, and streams to Audio Pub.\n"
+"Chat TTS is a source — add it from the Sources tab.\n"
+"\n"
+"Built for low-spec hardware."
+msgstr ""
+"Pub-Streamer\n"
+"\n"
+"Audio Pub向けの軽量オールインワン配信クライアント。\n"
+"マイクとアプリ別のオーディオをキャプチャし、\n"
+"VST効果を適用してffmpegでエンコードし、Audio Pubに配信します。\n"
+"チャットTTSはソースとして追加できます（ソースタブから）。\n"
+"\n"
+"低スペックハードウェア向けに設計されています。"
+
+msgid "Language will change on next launch."
+msgstr "言語設定は次回起動時に反映されます。"
+
+msgid "Language"
+msgstr "言語"
+
+# ── _StreamCloseDialog ────────────────────────────────────────────────────────
+
+msgid "Stream In Progress"
+msgstr "配信中"
+
+msgid "A stream is in progress."
+msgstr "配信中です。"
+
+msgid "\nHow would you like to handle it?"
+msgstr "\nどのように処理しますか？"
+
+msgid "&Auto Resume on Next Launch"
+msgstr "次回起動時に自動再接続(&A)"
+
+msgid "Pub-Streamer reconnects automatically on next launch."
+msgstr "次回起動時に自動的に再接続します。"
+
+msgid "&Manual Resume on Next Launch"
+msgstr "次回起動時に手動で再接続(&M)"
+
+msgid "On next launch, click Reconnect when you're ready."
+msgstr "準備ができたら「再接続」をクリックしてください。"
+
+msgid "&End Stream Entirely"
+msgstr "配信を完全に終了(&E)"
+
+msgid "Ends the stream on Audio Pub and disconnects now."
+msgstr "Audio Pubで配信を終了して切断します。"
+
+msgid "&Keep Streaming"
+msgstr "配信を続ける(&K)"
+
+# ── close dialog (recorder) ───────────────────────────────────────────────────
+
+msgid "A local recording is still saving."
+msgstr "ローカル録音をまだ保存中です。"
+
+msgid "Exit now and lose the end of the recording?"
+msgstr "今終了すると録音の末尾が失われます。終了しますか？"
+
+msgid "Recording in progress"
+msgstr "録音中"
+
+msgid "Exit Now"
+msgstr "今すぐ終了"
+
+msgid "Keep Open"
+msgstr "開いたまま"
+
+# ── stream_panel.py ───────────────────────────────────────────────────────────
+
+msgid "Audio Pub account"
+msgstr "Audio Pubアカウント"
+
+msgid "Instance URL:"
+msgstr "インスタンスURL:"
+
+msgid "Email:"
+msgstr "メール:"
+
+msgid "Password:"
+msgstr "パスワード:"
+
+msgid "&Log In"
+msgstr "ログイン(&L)"
+
+msgid "Logging in…"
+msgstr "ログイン中…"
+
+msgid "Log &Out"
+msgstr "ログアウト(&O)"
+
+msgid "Connected as {name}"
+msgstr "{name}として接続済み"
+
+msgid "Stream details  (required when logged in)"
+msgstr "配信詳細（ログイン時必須）"
+
+msgid "Title:"
+msgstr "タイトル:"
+
+msgid "Description:"
+msgstr "概要:"
+
+msgid "&Archive recording after stream ends"
+msgstr "配信終了後にアーカイブ(&A)"
+
+msgid "Server settings"
+msgstr "サーバー設定"
+
+msgid "Icecast host:"
+msgstr "Icecastホスト:"
+
+msgid "Icecast port:"
+msgstr "Icecastポート:"
+
+msgid "Username:"
+msgstr "ユーザー名:"
+
+msgid "Stream key:"
+msgstr "配信キー:"
+
+msgid "Mount point:"
+msgstr "マウントポイント:"
+
+msgid "Bitrate:"
+msgstr "ビットレート:"
+
+msgid "Format:"
+msgstr "フォーマット:"
+
+msgid "&Start Stream"
+msgstr "配信開始(&S)"
+
+msgid "&Stop Stream"
+msgstr "配信停止(&S)"
+
+msgid "&Reconnect"
+msgstr "再接続(&R)"
+
+msgid "Start &Fresh"
+msgstr "新規開始(&F)"
+
+msgid "Idle"
+msgstr "待機中"
+
+msgid "Connecting…"
+msgstr "接続中…"
+
+msgid "Stopped"
+msgstr "停止"
+
+msgid "Disconnected"
+msgstr "切断"
+
+msgid "Disconnected — reconnect or start fresh"
+msgstr "切断済み — 再接続または新規開始"
+
+msgid "Creating stream…"
+msgstr "配信を作成中…"
+
+msgid "Error"
+msgstr "エラー"
+
+msgid "Error — ffmpeg not found in PATH"
+msgstr "エラー — ffmpegがPATHにありません"
+
+msgid "Set Sc&heduled Time…"
+msgstr "スケジュール時刻を設定(&H)…"
+
+msgid "Automatically start at scheduled time"
+msgstr "スケジュール時刻に自動開始"
+
+msgid "Stream info:"
+msgstr "配信情報:"
+
+msgid "Not streaming"
+msgstr "配信していません"
+
+msgid "State: Streaming"
+msgstr "状態: 配信中"
+
+msgid "Listeners: {n}"
+msgstr "リスナー数: {n}"
+
+msgid "Peak: {pk}"
+msgstr "ピーク: {pk}"
+
+msgid "Stream ID: {sid}"
+msgstr "配信ID: {sid}"
+
+msgid "State: Connecting…"
+msgstr "状態: 接続中…"
+
+msgid "State: Not streaming"
+msgstr "状態: 配信していません"
+
+msgid "Peak this session: {n} listener(s)"
+msgstr "今回のセッションのピーク: {n}人"
+
+msgid "Streaming — {n} listener(s) (peak: {pk})"
+msgstr "配信中 — {n}人（ピーク: {pk}）"
+
+msgid "Schedule Stream Start"
+msgstr "配信開始時刻の設定"
+
+msgid "Hour (1–12):"
+msgstr "時 (1〜12):"
+
+msgid "Minute:"
+msgstr "分:"
+
+msgid "AM / PM:"
+msgstr "午前 / 午後:"
+
+msgid "How do you want to stop the stream?"
+msgstr "配信をどのように停止しますか？"
+
+msgid "Stop Stream"
+msgstr "配信停止"
+
+msgid "Disconnect &Encoder Only"
+msgstr "エンコーダーのみ切断(&E)"
+
+msgid "Stop &Entirely"
+msgstr "完全に停止(&S)"
+
+msgid "&Cancel"
+msgstr "キャンセル(&C)"
+
+msgid "Enter your email and password."
+msgstr "メールアドレスとパスワードを入力してください。"
+
+msgid "Audio Pub"
+msgstr "Audio Pub"
+
+msgid "Login failed:\n{message}"
+msgstr "ログインに失敗しました:\n{message}"
+
+msgid ""
+"Enter your Audio Pub user ID (mount point) before starting, "
+"or log in to have it filled automatically."
+msgstr ""
+"開始前にAudio PubユーザーID（マウントポイント）を入力するか、"
+"ログインして自動入力してください。"
+
+msgid "Mount point required"
+msgstr "マウントポイント必須"
+
+msgid "Enter a stream title before starting."
+msgstr "開始前にタイトルを入力してください。"
+
+msgid "Title required"
+msgstr "タイトル必須"
+
+msgid "Could not create stream on Audio Pub:\n{msg}"
+msgstr "Audio Pubで配信を作成できませんでした:\n{msg}"
+
+msgid "Recording failed to start:\n{exc}"
+msgstr "録音の開始に失敗しました:\n{exc}"
+
+# ── source_panel.py ───────────────────────────────────────────────────────────
+
+msgid "Audio sources:"
+msgstr "オーディオソース:"
+
+msgid "&Add Source"
+msgstr "ソースを追加(&A)"
+
+msgid "&Edit…"
+msgstr "編集(&E)…"
+
+msgid "&Remove"
+msgstr "削除(&R)"
+
+msgid "Source &VST Chain…"
+msgstr "ソースVSTチェーン(&V)…"
+
+msgid "Selected source"
+msgstr "選択中のソース"
+
+msgid "Volume:"
+msgstr "音量:"
+
+msgid "Fade:"
+msgstr "フェード:"
+
+msgid "&Mute this source"
+msgstr "このソースをミュート(&M)"
+
+msgid "M&onitor this source"
+msgstr "このソースをモニター(&O)"
+
+msgid "&Mute to stream (heard locally only)"
+msgstr "配信をミュート（ローカルのみ）(&M)"
+
+msgid "Monitor output:"
+msgstr "モニター出力:"
+
+msgid "System default"
+msgstr "システム既定"
+
+msgid "Monitor boost:"
+msgstr "モニターブースト:"
+
+msgid "Edit &Master VST chain…"
+msgstr "マスターVSTチェーンを編集(&M)…"
+
+msgid "Add Source"
+msgstr "ソースを追加"
+
+msgid "Edit Source"
+msgstr "ソースを編集"
+
+msgid "Source type:"
+msgstr "ソースの種類:"
+
+msgid "Microphone"
+msgstr "マイク"
+
+msgid "Application"
+msgstr "アプリケーション"
+
+msgid "Device Loopback"
+msgstr "デバイスループバック"
+
+msgid "Audio File"
+msgstr "オーディオファイル"
+
+msgid "Chat TTS"
+msgstr "チャットTTS"
+
+msgid "Sound Events"
+msgstr "サウンドイベント"
+
+msgid "Mastodon Replies"
+msgstr "Mastodon返信"
+
+msgid "&Save"
+msgstr "保存(&S)"
+
+msgid "&Add"
+msgstr "追加(&A)"
+
+msgid "No applications were selected."
+msgstr "アプリケーションが選択されていません。"
+
+msgid "Add App"
+msgstr "アプリを追加"
+
+msgid "No device selected."
+msgstr "デバイスが選択されていません。"
+
+msgid "No loopback device selected."
+msgstr "ループバックデバイスが選択されていません。"
+
+msgid "No application selected."
+msgstr "アプリケーションが選択されていません。"
+
+msgid "Select a source first."
+msgstr "まずソースを選択してください。"
+
+msgid "VST"
+msgstr "VST"
+
+msgid "Select a microphone / input device:"
+msgstr "マイク/入力デバイスを選択:"
+
+msgid "Select applications to watch and capture:"
+msgstr "監視・キャプチャするアプリケーションを選択:"
+
+msgid ""
+"Checked apps are watched by name. Capture starts automatically "
+"when the app plays audio, even if launched after this is added. "
+"Use Browse to add an app not currently running."
+msgstr ""
+"チェックされたアプリを名前で監視します。追加後に起動したアプリも含め、"
+"音声を再生し始めたときに自動的にキャプチャを開始します。"
+"実行中でないアプリを追加するには「参照」を使用してください。"
+
+msgid "&Browse for .exe…"
+msgstr ".exeを参照(&B)…"
+
+msgid "Select a render-device loopback (captures all audio from that output):"
+msgstr "レンダーデバイスのループバックを選択（その出力の全音声をキャプチャ）:"
+
+msgid "Note: some devices may not support loopback and will fail on Add."
+msgstr "注意: 一部のデバイスはループバックをサポートしておらず、追加に失敗する場合があります。"
+
+msgid "Select an audio file to play on loop:"
+msgstr "ループ再生するオーディオファイルを選択:"
+
+msgid "&Browse…"
+msgstr "参照(&B)…"
+
+msgid ""
+"Supported formats: WAV, MP3, FLAC, OGG, AIFF, and others. "
+"The file will be resampled to the mixer rate automatically."
+msgstr ""
+"対応形式: WAV、MP3、FLAC、OGG、AIFF など。"
+"ミキサーのサンプルレートに自動的にリサンプルされます。"
+
+msgid ""
+"Receives Audio Pub chat messages and synthesises them with the "
+"chosen TTS engine.  The audio output can be monitored, routed "
+"through VST effects, and sent to the stream."
+msgstr ""
+"Audio Pubのチャットメッセージを受信し、選択したTTSエンジンで合成します。"
+"出力音声はモニタリング、VST効果の適用、配信への送信が可能です。"
+
+msgid "Engine:"
+msgstr "エンジン:"
+
+msgid "Message template:"
+msgstr "メッセージテンプレート:"
+
+msgid "&Preview Voice"
+msgstr "音声をプレビュー(&P)"
+
+msgid "Sound pack:"
+msgstr "サウンドパック:"
+
+msgid "Play sound for:"
+msgstr "サウンドを再生するイベント:"
+
+msgid ""
+"Plays audio cues when chat messages arrive or listener count changes. "
+"Sound packs are sub-folders inside the 'sounds' directory."
+msgstr ""
+"チャットメッセージの受信やリスナー数の変化時にサウンドを再生します。"
+"サウンドパックは「sounds」フォルダ内のサブフォルダです。"
+
+msgid "TTS engine:"
+msgstr "TTSエンジン:"
+
+msgid ""
+"Reads Mastodon replies to your stream post aloud using TTS. "
+"The source stays idle until a post has been made from the Mastodon tab."
+msgstr ""
+"配信投稿へのMastodon返信をTTSで読み上げます。"
+"MastodonタブからポストするまでこのソースはアイドルRIXです。"
+
+msgid "Could not open loopback device:\n{e}"
+msgstr "ループバックデバイスを開けませんでした:\n{e}"
+
+msgid "Loopback Error"
+msgstr "ループバックエラー"
+
+msgid "Could not start source:\n{e}"
+msgstr "ソースを開始できませんでした:\n{e}"
+
+msgid "Could not open monitor output:\n{err}"
+msgstr "モニター出力を開けませんでした:\n{err}"
+
+msgid "Monitor Error"
+msgstr "モニターエラー"
+
+# ── chat_panel.py ─────────────────────────────────────────────────────────────
+
+msgid "Chat messages:"
+msgstr "チャットメッセージ:"
+
+msgid "&Send"
+msgstr "送信(&S)"
+
+msgid "Log in to Audio Pub to send messages"
+msgstr "メッセージを送信するにはAudio Pubにログインしてください"
+
+msgid "No active stream"
+msgstr "アクティブな配信なし"
+
+# ── mastodon_panel.py ─────────────────────────────────────────────────────────
+
+msgid "Mastodon account"
+msgstr "Mastodonアカウント"
+
+msgid "Instance (e.g. mastodon.social):"
+msgstr "インスタンス (例: mastodon.social):"
+
+msgid "&Connect to Mastodon"
+msgstr "Mastodonに接続(&C)"
+
+msgid "&Disconnect"
+msgstr "切断(&D)"
+
+msgid "Not connected"
+msgstr "未接続"
+
+msgid "Stream announcement post"
+msgstr "配信告知投稿"
+
+msgid "Use {url}, {title}, or {description} to insert stream info."
+msgstr "配信情報を挿入するには {url}、{title}、{description} を使用してください。"
+
+msgid "&Auto-post when stream goes live"
+msgstr "配信開始時に自動投稿(&A)"
+
+msgid "&Post Now"
+msgstr "今すぐ投稿(&P)"
+
+msgid "Posting…"
+msgstr "投稿中…"
+
+msgid "Opening browser…"
+msgstr "ブラウザを開いています…"
+
+msgid "Connected as @{acct}"
+msgstr "@{acct}として接続済み"
+
+msgid "Connected"
+msgstr "接続済み"
+
+msgid "Enter your Mastodon instance first (e.g. mastodon.social)."
+msgstr "まずMastodonインスタンスを入力してください（例: mastodon.social）。"
+
+msgid "Could not connect to Mastodon:\n{msg}"
+msgstr "Mastodonに接続できませんでした:\n{msg}"
+
+msgid "Connect your Mastodon account first."
+msgstr "まずMastodonアカウントを接続してください。"
+
+msgid "The post text is empty."
+msgstr "投稿テキストが空です。"
+
+msgid "Post failed: {err}"
+msgstr "投稿に失敗しました: {err}"
+
+msgid "Posted: {post_url}"
+msgstr "投稿済み: {post_url}"
+
+# ── recording_panel.py ────────────────────────────────────────────────────────
+
+msgid "Recording settings"
+msgstr "録音設定"
+
+msgid "Output directory:"
+msgstr "出力フォルダ:"
+
+msgid "Browse…"
+msgstr "参照…"
+
+msgid "Sample rate:"
+msgstr "サンプルレート:"
+
+msgid "Bitrate (kbps):"
+msgstr "ビットレート (kbps):"
+
+msgid "&Split into stems"
+msgstr "ステムに分割(&S)"
+
+msgid "&Record with stream"
+msgstr "配信と同時に録音(&R)"
+
+msgid "Manual recording"
+msgstr "手動録音"
+
+msgid "&Start Recording"
+msgstr "録音開始(&S)"
+
+msgid "S&top Recording"
+msgstr "録音停止(&T)"
+
+msgid "Recording…"
+msgstr "録音中…"
+
+msgid "Starting…"
+msgstr "開始中…"
+
+msgid "Stopping…"
+msgstr "停止中…"
+
+msgid "Choose recording output folder"
+msgstr "録音出力フォルダを選択"
+
+msgid "Set an output directory before recording."
+msgstr "録音前に出力フォルダを設定してください。"
+
+msgid "The '{engine}' engine requires packages that are not installed.\nPlease install the required dependencies and try again."
+msgstr "'{engine}'エンジンに必要なパッケージがインストールされていません。\n必要な依存関係をインストールしてから再試行してください。"
+
+msgid "Engine Unavailable"
+msgstr "エンジン利用不可"
+
+# ── capture_sound_events.py event labels ─────────────────────────────────────
+
+msgid "Chat message"
+msgstr "チャットメッセージ"
+
+msgid "Listener joins"
+msgstr "リスナー参加"
+
+msgid "Listener leaves"
+msgstr "リスナー退出"
+
+msgid "Mastodon reply"
+msgstr "Mastodon返信"
+
+msgid "Stream starts"
+msgstr "配信開始"
+
+msgid "Stream ends"
+msgstr "配信終了"
+
+msgid "Recording starts"
+msgstr "録音開始"
+
+msgid "Recording ends"
+msgstr "録音終了"
+
+msgid " (no file)"
+msgstr "（ファイルなし）"
+
+# ── source_panel.py — TTS engine form labels ──────────────────────────────────
+
+msgid "Voice:"
+msgstr "音声："
+
+msgid "Rate:"
+msgstr "速度："
+
+msgid "Pitch:"
+msgstr "ピッチ："
+
+msgid "Speed:"
+msgstr "速さ："
+
+msgid "API key:"
+msgstr "APIキー："
+
+msgid "Model:"
+msgstr "モデル："
+
+msgid "Stability:"
+msgstr "安定性："
+
+msgid "Similarity:"
+msgstr "類似度："
+
+msgid "Language:"
+msgstr "言語："
+
+msgid "Language code:"
+msgstr "言語コード："
+
+msgid "Subscription key:"
+msgstr "サブスクリプションキー："
+
+msgid "Region (e.g. eastus):"
+msgstr "リージョン（例: eastus）："
+
+msgid "Region (e.g. us-east-1):"
+msgstr "リージョン（例: us-east-1）："
+
+msgid "Region:"
+msgstr "リージョン："
+
+msgid "Access key ID:"
+msgstr "アクセスキーID："
+
+msgid "Secret access key:"
+msgstr "シークレットアクセスキー："
+
+msgid "Secret key:"
+msgstr "シークレットキー："
+
+msgid "Voice ID:"
+msgstr "音声ID："
+
+msgid "Voice name:"
+msgstr "音声名："
+
+msgid "Server URL:"
+msgstr "サーバーURL："
+
+msgid "Model file  (*.onnx):"
+msgstr "モデルファイル (*.onnx)："
+
+msgid "Model file (*.onnx):"
+msgstr "モデルファイル (*.onnx)："
+
+msgid "The *.onnx.json config file must sit next to the model."
+msgstr "*.onnx.json 設定ファイルはモデルと同じフォルダに置いてください。"
+
+msgid "Slow speed"
+msgstr "低速"
+
+msgid "Leave API key blank to use Application Default Credentials."
+msgstr "APIキーを空白にするとアプリケーションデフォルト認証情報が使われます。"
+
+msgid "Uses Microsoft Edge read-aloud service. Requires internet."
+msgstr "Microsoft Edgeの読み上げサービスを使用します。インターネット接続が必要です。"
+
+msgid "&Get Available Voices"
+msgstr "利用可能な音声を取得(&G)"
+
+msgid "Get A&vailable Voices"
+msgstr "利用可能な音声を取得(&V)"
+
+msgid "Get Avai&lable Voices"
+msgstr "利用可能な音声を取得(&L)"
+
+msgid "Fetching…"
+msgstr "取得中…"
+
+msgid "Previewing…"
+msgstr "プレビュー中…"
+
+msgid "Hello, this is a preview of the selected voice."
+msgstr "こんにちは、これは選択した音声のプレビューです。"
+
+# ── source_panel.py — error messages ─────────────────────────────────────────
+
+msgid "Enter subscription key and region first."
+msgstr "最初にサブスクリプションキーとリージョンを入力してください。"
+
+msgid "Azure TTS"
+msgstr "Azure TTS"
+
+msgid "Enter access key ID and secret access key first."
+msgstr "最初にアクセスキーIDとシークレットアクセスキーを入力してください。"
+
+msgid "AWS Polly"
+msgstr "AWS Polly"
+
+msgid "Enter your ElevenLabs API key first."
+msgstr "最初にElevenLabs APIキーを入力してください。"
+
+msgid "ElevenLabs"
+msgstr "ElevenLabs"
