@@ -63,23 +63,33 @@ class ChatPanel(wx.Panel):
     # ── Send ─────────────────────────────────────────────────────────────────
 
     def _on_send(self, _event=None):
-        if self._audiopub is None or not self._audiopub.is_logged_in:
-            self._set_status(_("Log in to Audio Pub to send messages"))
-            return
         content = self._msg_ctrl.GetValue().strip()
         if not content:
             return
-        stream_id = self._audiopub.current_stream_id
-        if not stream_id:
-            self._set_status(_("No active stream"))
-            return
+
+        username = "You"
+        if self._audiopub is not None and self._audiopub.is_logged_in:
+            username = getattr(self._audiopub, "display_name", None) or "You"
+
+        stream_id = self._audiopub.current_stream_id if self._audiopub else ""
+
         self._msg_ctrl.SetValue("")
+
+        if not stream_id:
+            # No active stream — dispatch locally so TTS/sound sources can be tested.
+            self._sse.dispatch_local(username, content)
+            self._set_status(_("(local — not sent to stream)"))
+            return
+
+        # Active stream: dispatch locally immediately so TTS reads outgoing messages,
+        # then post to Audio Pub in the background.
+        self._sse.dispatch_local(username, content)
         self._send_btn.Disable()
+        self._set_status("")
 
         def _worker():
             try:
                 self._audiopub.send_chat(stream_id, content)
-                wx.CallAfter(self._set_status, "")
             except Exception as exc:
                 wx.CallAfter(self._set_status, f"Error: {exc}")
             finally:

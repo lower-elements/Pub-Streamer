@@ -94,6 +94,16 @@ class AudioPubChatClient:
         except ValueError:
             pass
 
+    def dispatch_local(self, username: str, content: str):
+        """Deliver a chat message directly to all subscribers without SSE."""
+        if self.on_chat:
+            self.on_chat(username, content)
+        for fn in list(self._chat_subscribers):
+            try:
+                fn(username, content)
+            except Exception:
+                pass
+
     def start(self, base_url: str, user_id: str):
         """Start the SSE client. user_id is the Audio Pub user UUID (= Icecast mount point)."""
         self._base_url = base_url.rstrip("/")
