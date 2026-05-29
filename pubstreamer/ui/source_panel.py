@@ -18,6 +18,7 @@ from ..audio.mixer import AudioSource, Mixer
 from ..audio.capture_device import DeviceCapture, list_wasapi_devices, list_loopback_devices
 from ..audio.capture_process import (WatchedAppCapture, list_audio_sessions)
 from ..audio.capture_file import FileCapture
+from ..audio.capture_url import UrlStreamCapture
 from ..audio.capture_tts import ChatTtsCapture
 from ..audio.capture_sound_events import (SoundEventCapture, EVENTS as SOUND_EVENTS,
                                           list_packs, available_events)
@@ -317,6 +318,19 @@ class SourcePanel(wx.Panel):
             _log(f"Add source: file '{path}'")
             self._register(AudioSource(cap, name=name))
 
+        elif source_type == "url":
+            url = dlg.selected_audio_url()
+            dlg.Destroy()
+            if not url:
+                return
+            cap = UrlStreamCapture(url=url,
+                                   sample_rate=self._mixer.sample_rate,
+                                   channels=self._mixer.channels,
+                                   chunk_frames=self._mixer.chunk_frames)
+            cap.start()
+            _log(f"Add source: url '{url}'")
+            self._register(AudioSource(cap, name=url))
+
         elif source_type == "tts":
             tts_cfg = dlg.tts_config
             dlg.Destroy()
@@ -502,6 +516,16 @@ class SourcePanel(wx.Panel):
                               chunk_frames=self._mixer.chunk_frames)
             return cap, os.path.basename(path)
 
+        if source_type == "url":
+            url = dlg.selected_audio_url()
+            if not url:
+                raise ValueError("No audio URL provided.")
+            cap = UrlStreamCapture(url=url,
+                                   sample_rate=self._mixer.sample_rate,
+                                   channels=self._mixer.channels,
+                                   chunk_frames=self._mixer.chunk_frames)
+            return cap, url
+
         if source_type == "tts":
             tts_cfg  = dlg.tts_config
             eng_key  = tts_cfg.get("engine", "sapi")
@@ -579,6 +603,9 @@ class SourcePanel(wx.Panel):
         elif isinstance(cap, FileCapture):
             entry["type"] = "file"
             entry["path"] = cap.path
+        elif isinstance(cap, UrlStreamCapture):
+            entry["type"] = "url"
+            entry["url"] = cap.url
         elif isinstance(cap, ChatTtsCapture):
             entry["type"]          = "tts"
             entry["engine"]        = engine_key(cap._engine.name)
@@ -860,6 +887,9 @@ class SourcePanel(wx.Panel):
             elif isinstance(cap, FileCapture):
                 entry["type"] = "file"
                 entry["path"] = cap.path
+            elif isinstance(cap, UrlStreamCapture):
+                entry["type"] = "url"
+                entry["url"] = cap.url
             elif isinstance(cap, ChatTtsCapture):
                 entry["type"]          = "tts"
                 entry["engine"]        = engine_key(cap._engine.name)
@@ -897,6 +927,8 @@ class SourcePanel(wx.Panel):
                     self._restore_app_watch(entry)
                 elif t == "file":
                     self._restore_file(entry)
+                elif t == "url":
+                    self._restore_url(entry)
                 elif t == "tts":
                     self._restore_tts(entry)
                 elif t == "sounds":
@@ -1078,6 +1110,26 @@ class SourcePanel(wx.Panel):
         src.vst.from_dict(entry.get("vst", []))
         self._register(src, save=False)
 
+    def _restore_url(self, entry: dict):
+        url = entry.get("url", "").strip()
+        if not url:
+            return
+        _log(f"Restore: url '{url}'")
+        cap = UrlStreamCapture(url=url,
+                               sample_rate=self._mixer.sample_rate,
+                               channels=self._mixer.channels,
+                               chunk_frames=self._mixer.chunk_frames)
+        cap.start()
+        src = AudioSource(cap, name=entry.get("name", url))
+        src.gain            = float(entry.get("gain", 1.0))
+        src.muted           = bool(entry.get("muted", False))
+        src.mute_to_stream  = bool(entry.get("mute_to_stream", False))
+        src.monitored       = bool(entry.get("monitored", False))
+        src.fade_duration   = float(entry.get("fade_duration", 0.0))
+        src._gain_factor    = 0.0 if src.muted else 1.0
+        src.vst.from_dict(entry.get("vst", []))
+        self._register(src, save=False)
+
     def _restore_tts(self, entry: dict):
         eng_key = entry.get("engine", "sapi")
         engine  = make_engine(eng_key, entry.get("engine_config", {}))
@@ -1191,14 +1243,15 @@ class SourcePanel(wx.Panel):
 
 # Canonical source type labels (msgids). Translated at runtime inside _build().
 _SOURCE_TYPE_IDS = ["Microphone", "Application", "Device Loopback", "Audio File",
-                    "Chat TTS", "Sound Events", "Mastodon Replies"]
+                    "Audio URL", "Chat TTS", "Sound Events", "Mastodon Replies"]
 _TYPE_MIC      = 0
 _TYPE_APP      = 1
 _TYPE_LOOPBACK = 2
 _TYPE_FILE     = 3
-_TYPE_TTS      = 4
-_TYPE_SOUNDS   = 5
-_TYPE_MASTODON = 6
+_TYPE_URL      = 4
+_TYPE_TTS      = 5
+_TYPE_SOUNDS   = 6
+_TYPE_MASTODON = 7
 
 
 def _source_type_labels() -> list[str]:
@@ -1260,6 +1313,7 @@ class _AddSourceDialog(wx.Dialog):
         self._book.AddPage(self._build_app_page(),      "Application")
         self._book.AddPage(self._build_loopback_page(), "Device Loopback")
         self._book.AddPage(self._build_file_page(),     "Audio File")
+        self._book.AddPage(self._build_url_page(),      "Audio URL")
         self._book.AddPage(self._build_tts_page(),      "Chat TTS")
         self._book.AddPage(self._build_sounds_page(),    "Sound Events")
         self._book.AddPage(self._build_mastodon_page(),  "Mastodon Replies")
@@ -1379,6 +1433,28 @@ class _AddSourceDialog(wx.Dialog):
             page,
             label=_("Supported formats: WAV, MP3, FLAC, OGG, AIFF, and others. "
                     "The file will be resampled to the mixer rate automatically."))
+        note.SetForegroundColour(wx.SystemSettings.GetColour(wx.SYS_COLOUR_GRAYTEXT))
+        note.Wrap(440)
+        sizer.Add(note, 0)
+
+        page.SetSizer(sizer)
+        return page
+
+    def _build_url_page(self) -> wx.Panel:
+        page = wx.Panel(self._book)
+        sizer = wx.BoxSizer(wx.VERTICAL)
+
+        sizer.Add(wx.StaticText(page, label=_("Enter an audio stream URL:")),
+                  0, wx.BOTTOM, 4)
+
+        self._url_txt = wx.TextCtrl(page, value="http://", name="Audio URL")
+        sizer.Add(self._url_txt, 0, wx.EXPAND | wx.BOTTOM, 6)
+
+        note = wx.StaticText(
+            page,
+            label=_("Use a direct stream URL such as Icecast or another HTTP audio "
+                    "stream that ffmpeg can decode. The stream is decoded live and "
+                    "mixed like any other source."))
         note.SetForegroundColour(wx.SystemSettings.GetColour(wx.SYS_COLOUR_GRAYTEXT))
         note.Wrap(440)
         sizer.Add(note, 0)
@@ -1881,6 +1957,7 @@ class _AddSourceDialog(wx.Dialog):
             "app_watch":       _TYPE_APP,
             "app_include":     _TYPE_APP,
             "file":            _TYPE_FILE,
+            "url":             _TYPE_URL,
             "tts":             _TYPE_TTS,
             "sounds":          _TYPE_SOUNDS,
             "mastodon_replies":_TYPE_MASTODON,
@@ -1898,6 +1975,8 @@ class _AddSourceDialog(wx.Dialog):
             self._preload_app(entry.get("exe_name", ""))
         elif type_str == "file":
             self._file_path_txt.SetValue(entry.get("path", ""))
+        elif type_str == "url":
+            self._url_txt.SetValue(entry.get("url", ""))
         elif type_str == "tts":
             self._preload_tts(entry.get("engine", "sapi"),
                               entry.get("engine_config", {}),
@@ -2009,6 +2088,8 @@ class _AddSourceDialog(wx.Dialog):
             return "loopback"
         if idx == _TYPE_FILE:
             return "file"
+        if idx == _TYPE_URL:
+            return "url"
         if idx == _TYPE_TTS:
             return "tts"
         if idx == _TYPE_SOUNDS:
@@ -2066,6 +2147,10 @@ class _AddSourceDialog(wx.Dialog):
     def selected_file_path(self) -> str:
         """Returns the selected file path (file page only), or empty string."""
         return self._file_path_txt.GetValue().strip()
+
+    def selected_audio_url(self) -> str:
+        """Returns the entered audio stream URL, or empty string."""
+        return self._url_txt.GetValue().strip()
 
 
 # ── _AddMicDialog — ASIO support (commented out; needs sub-device/channel enumeration) ──
