@@ -1,6 +1,7 @@
 """Chat tab — message log and outbound message input."""
 
 import threading
+import time
 import wx
 
 from ..chat.sse_client import AudioPubChatClient
@@ -55,7 +56,8 @@ class ChatPanel(wx.Panel):
 
     def _on_chat(self, username: str, content: str):
         entry = f"[{username}]: {content}"
-        wx.CallAfter(self._append, entry)
+        queued_at = time.perf_counter()
+        wx.CallAfter(self._append, entry, queued_at)
 
     def _on_chat_delete(self, chat_id: str):
         pass
@@ -102,7 +104,11 @@ class ChatPanel(wx.Panel):
 
     # ── UI helpers ────────────────────────────────────────────────────────────
 
-    def _append(self, entry: str):
+    def _append(self, entry: str, queued_at: float | None = None):
+        if queued_at is not None:
+            lag = time.perf_counter() - queued_at
+            if lag > 0.5:
+                print(f"[ChatPanel] UI append lag {lag:.3f}s", flush=True)
         self._entries.append(entry)
         self._lb.Append(entry)
         while self._lb.GetCount() > _MAX_LINES:

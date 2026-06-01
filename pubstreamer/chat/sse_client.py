@@ -4,6 +4,7 @@ Emits chat, state, and listener-count callbacks from a daemon thread.
 """
 
 import json
+import queue
 import threading
 import time
 from typing import Callable
@@ -79,6 +80,8 @@ class AudioPubChatClient:
 
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
+        self._dispatch_thread: threading.Thread | None = None
+        self._event_queue: "queue.Queue[dict]" = queue.Queue(maxsize=512)
         self._base_url = ""
         self._user_id = ""
         self._stream_id = ""
@@ -96,20 +99,21 @@ class AudioPubChatClient:
 
     def dispatch_local(self, username: str, content: str):
         """Deliver a chat message directly to all subscribers without SSE."""
-        if self.on_chat:
-            self.on_chat(username, content)
-        for fn in list(self._chat_subscribers):
-            try:
-                fn(username, content)
-            except Exception:
-                pass
+        self._dispatch_event({
+            "type": "chat",
+            "username": username,
+            "content": content,
+            "received_at": time.perf_counter(),
+        })
 
-    def start(self, base_url: str, user_id: str):
+    def start(self, base_url: str, user_id: str, stream_id: str = ""):
         """Start the SSE client. user_id is the Audio Pub user UUID (= Icecast mount point)."""
         self._base_url = base_url.rstrip("/")
         self._user_id = user_id
-        self._stream_id = ""
+        self._stream_id = stream_id.strip()
         self._stop_event.clear()
+        self._drain_event_queue()
+        self._start_dispatcher()
         self._thread = threading.Thread(target=self._run, daemon=True, name="sse-chat")
         self._thread.start()
 
@@ -118,6 +122,9 @@ class AudioPubChatClient:
         if self._thread:
             self._thread.join(timeout=3)
             self._thread = None
+        if self._dispatch_thread:
+            self._dispatch_thread.join(timeout=3)
+            self._dispatch_thread = None
 
     @property
     def is_running(self) -> bool:
@@ -174,33 +181,106 @@ class AudioPubChatClient:
                 # Dispatch accumulated event
                 if data_lines:
                     payload = "".join(data_lines)
-                    self._dispatch(event_type, payload)
+                    self._enqueue_event(event_type, payload)
                 event_type = "message"
                 data_lines = []
 
-    def _dispatch(self, event_type: str, payload: str):
+    def _enqueue_event(self, event_type: str, payload: str):
         try:
             data = json.loads(payload)
         except json.JSONDecodeError:
             return
+        event = self._parse_event(event_type, data)
+        if event is None:
+            return
+        try:
+            self._event_queue.put_nowait(event)
+        except queue.Full:
+            # Preserve the newest chat/listener state instead of blocking the
+            # network reader thread behind slow consumers.
+            try:
+                self._event_queue.get_nowait()
+            except queue.Empty:
+                pass
+            try:
+                self._event_queue.put_nowait(event)
+            except queue.Full:
+                pass
 
+    def _parse_event(self, event_type: str, data: dict) -> "dict | None":
+        received_at = time.perf_counter()
         if event_type == "chat":
             user = data.get("user", {})
             username = (user.get("displayName") or user.get("name", "?")) if isinstance(user, dict) else str(user)
             content  = data.get("content", "")
+            return {
+                "type": "chat",
+                "username": username,
+                "content": content,
+                "received_at": received_at,
+            }
+
+        if event_type == "chat_delete":
+            return {
+                "type": "chat_delete",
+                "chat_id": str(data.get("chatId", "")),
+                "received_at": received_at,
+            }
+
+        if event_type == "state":
+            return {
+                "type": "state",
+                "state": data.get("state", ""),
+                "received_at": received_at,
+            }
+
+        if event_type == "listeners":
+            return {
+                "type": "listeners",
+                "count": int(data.get("activeListeners", 0)),
+                "received_at": received_at,
+            }
+        return None
+
+    def _start_dispatcher(self):
+        if self._dispatch_thread and self._dispatch_thread.is_alive():
+            return
+        self._dispatch_thread = threading.Thread(
+            target=self._dispatch_loop, daemon=True, name="sse-dispatch"
+        )
+        self._dispatch_thread.start()
+
+    def _dispatch_loop(self):
+        while not self._stop_event.is_set() or not self._event_queue.empty():
+            try:
+                event = self._event_queue.get(timeout=0.5)
+            except queue.Empty:
+                continue
+            self._dispatch_event(event)
+
+    def _dispatch_event(self, event: dict):
+        et = event.get("type", "")
+        lag = time.perf_counter() - float(event.get("received_at", time.perf_counter()))
+        if lag > 0.5:
+            print(f"[SSEClient] dispatch lag {lag:.3f}s for {et}", flush=True)
+        if et == "chat":
             if self.on_chat:
-                self.on_chat(username, content)
+                self.on_chat(event["username"], event["content"])
             for fn in list(self._chat_subscribers):
                 try:
-                    fn(username, content)
+                    fn(event["username"], event["content"])
                 except Exception:
                     pass
+        elif et == "chat_delete" and self.on_chat_delete:
+            self.on_chat_delete(event["chat_id"])
+        elif et == "state" and self.on_state:
+            self.on_state(event["state"])
+        elif et == "listeners" and self.on_listeners:
+            self.on_listeners(event["count"])
 
-        elif event_type == "chat_delete" and self.on_chat_delete:
-            self.on_chat_delete(str(data.get("chatId", "")))
-
-        elif event_type == "state" and self.on_state:
-            self.on_state(data.get("state", ""))
-
-        elif event_type == "listeners" and self.on_listeners:
-            self.on_listeners(int(data.get("activeListeners", 0)))
+    def _drain_event_queue(self):
+        while True:
+            try:
+                self._event_queue.get_nowait()
+            except queue.Empty:
+                return

@@ -261,9 +261,12 @@ class StreamPanel(wx.Panel):
         if self._audiopub.stream_key:
             self._password.SetValue(self._audiopub.stream_key)
             self._password.SetEditable(False)
+            self._cfg.source_password = self._audiopub.stream_key
         if self._audiopub.user_id:
             self._mountpt.SetValue(self._audiopub.user_id)
             self._mountpt.SetEditable(False)
+            self._cfg.mountpoint = self._audiopub.user_id
+        self._cfg.save()
         self.Layout()
 
     def _show_disconnected(self):
@@ -314,6 +317,8 @@ class StreamPanel(wx.Panel):
         self._cfg.ap_user_id      = ""
         self._cfg.ap_display_name = ""
         self._cfg.ap_stream_key   = ""
+        self._cfg.source_password = ""
+        self._cfg.mountpoint      = ""
         self._cfg.save()
         self._password.SetValue("")
         self._mountpt.SetValue("")
@@ -399,7 +404,11 @@ class StreamPanel(wx.Panel):
         )
         if self._mastodon_panel is not None:
             self._sse.on_stream_id_ready = self._mastodon_panel.on_stream_live
-        self._sse.start(self._cfg.base_url, self._cfg.mountpoint)
+        self._sse.start(
+            self._cfg.base_url,
+            self._cfg.mountpoint,
+            stream_id=self._audiopub.current_stream_id or "",
+        )
         if self._recorder is not None and self._recorder.record_with_stream:
             def _start_rec():
                 try:
@@ -571,9 +580,13 @@ class StreamPanel(wx.Panel):
         self._cfg.base_url        = self._ap_url.GetValue().strip() or self._cfg.base_url
         self._cfg.icecast_host    = self._ice_host.GetValue()
         self._cfg.source_user     = self._username.GetValue()
-        if self._password.IsEditable():
+        if self._audiopub.is_logged_in and self._audiopub.stream_key:
+            self._cfg.source_password = self._audiopub.stream_key
+        elif self._password.IsEditable():
             self._cfg.source_password = self._password.GetValue()
-        if self._mountpt.IsEditable():
+        if self._audiopub.is_logged_in and self._audiopub.user_id:
+            self._cfg.mountpoint = self._audiopub.user_id
+        elif self._mountpt.IsEditable():
             self._cfg.mountpoint = self._mountpt.GetValue()
         try:
             self._cfg.icecast_port = int(self._ice_port.GetValue())

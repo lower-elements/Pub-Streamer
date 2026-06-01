@@ -78,6 +78,7 @@ class SoundEventCapture:
         self._playing: list                    = []
         self._play_lock                        = threading.Lock()
         self._stop                             = threading.Event()
+        self._audio_cache: dict[str, np.ndarray | None] = {}
         self.error: "str | None"               = None
 
         # Stable bound-method references for subscriber registration.
@@ -130,23 +131,10 @@ class SoundEventCapture:
     # ── sound triggering ─────────────────────────────────────────────────────
 
     def _trigger(self, event_key: str):
-        fname = next((f for k, _l, f in EVENTS if k == event_key), None)
-        if fname is None:
-            return
-        candidates = _FALLBACKS.get(event_key, [fname])
-        path = next((sound_path(self.pack, f) for f in candidates
-                     if sound_path(self.pack, f).is_file()), None)
-        if path is None:
-            return
-        try:
-            from ..tts.base import decode_audio_bytes
-            audio = decode_audio_bytes(path.read_bytes(), self._sr, self._ch)
-            if audio is not None and audio.shape[1] > 0:
-                with self._play_lock:
-                    self._playing.append([audio, 0])
-        except Exception as e:
-            self.error = str(e)
-            print(f"[SoundEvents] trigger '{event_key}' error: {e}", flush=True)
+        audio = self._load_audio(event_key)
+        if audio is not None and audio.shape[1] > 0:
+            with self._play_lock:
+                self._playing.append([audio, 0])
 
     def _on_chat(self, username: str, content: str):
         if "chat" in self.enabled_events:
@@ -194,3 +182,32 @@ class SoundEventCapture:
             if s.get("mount", "").strip("/") == self._mount:
                 return int(s.get("listeners", 0))
         return None
+
+    def _load_audio(self, event_key: str) -> "np.ndarray | None":
+        if event_key in self._audio_cache:
+            return self._audio_cache[event_key]
+
+        fname = next((f for k, _l, f in EVENTS if k == event_key), None)
+        if fname is None:
+            self._audio_cache[event_key] = None
+            return None
+
+        candidates = _FALLBACKS.get(event_key, [fname])
+        path = next((sound_path(self.pack, f) for f in candidates
+                     if sound_path(self.pack, f).is_file()), None)
+        if path is None:
+            self._audio_cache[event_key] = None
+            return None
+
+        try:
+            from ..tts.base import decode_audio_bytes
+            audio = decode_audio_bytes(path.read_bytes(), self._sr, self._ch)
+            if audio is not None and audio.shape[1] > 0:
+                self._audio_cache[event_key] = audio
+            else:
+                self._audio_cache[event_key] = None
+        except Exception as e:
+            self.error = str(e)
+            self._audio_cache[event_key] = None
+            print(f"[SoundEvents] load '{event_key}' error: {e}", flush=True)
+        return self._audio_cache[event_key]
