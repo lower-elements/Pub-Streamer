@@ -35,6 +35,7 @@ class ChatTtsCapture:
         self._text_queue: queue.Queue = queue.Queue()
         self._buf      = np.zeros((channels, 0), dtype=np.float32)
         self._buf_lock = threading.Lock()
+        self._flush_gen = 0   # incremented on each flush; render loop discards stale audio
 
         self._running = False
         self._thread: threading.Thread | None = None
@@ -66,6 +67,7 @@ class ChatTtsCapture:
 
     def flush(self):
         """Drain queued text and discard buffered audio.  Thread-safe."""
+        self._flush_gen += 1
         while True:
             try:
                 self._text_queue.get_nowait()
@@ -108,17 +110,22 @@ class ChatTtsCapture:
                 continue
             if text is None:
                 break
+            gen = self._flush_gen
             try:
                 audio = self._engine.synthesize(text, self._sample_rate, self._channels)
             except Exception as e:
                 self.error = str(e)
                 audio = None
+            if self._flush_gen != gen:
+                continue
             if (audio is None or audio.shape[1] == 0) and self._fallback is not None:
                 try:
                     audio = self._fallback.synthesize(text, self._sample_rate, self._channels)
                 except Exception as e:
                     self.error = str(e)
                     audio = None
+                if self._flush_gen != gen:
+                    continue
             if audio is not None and audio.shape[1] > 0:
                 with self._buf_lock:
                     self._buf = np.concatenate([self._buf, audio], axis=1)

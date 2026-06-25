@@ -93,6 +93,9 @@ class PubStreamerFrame(wx.Frame):
 
         self.Bind(wx.EVT_CLOSE, self._on_close)
         self.Bind(wx.EVT_CHAR_HOOK, self._on_char_hook)
+        # App-level binding catches Escape on Win32 when certain child controls
+        # (ListBox, Notebook pages, etc.) have focus and the frame-level hook misses it.
+        wx.GetApp().Bind(wx.EVT_CHAR_HOOK, self._on_char_hook)
         self.Centre()
 
     # ── menu ────────────────────────────────────────────────────────────────
@@ -205,10 +208,10 @@ class PubStreamerFrame(wx.Frame):
         )
 
     def _on_char_hook(self, event):
-        if event.GetKeyCode() == wx.WXK_ESCAPE and not event.HasAnyModifier():
+        if event.GetKeyCode() == wx.WXK_ESCAPE and wx.GetActiveWindow() is self:
             self._sources.flush_all_speech()
-        else:
-            event.Skip()
+            return   # consume — don't let Escape close widgets or propagate to dialogs
+        event.Skip()
 
     def _on_close(self, event):
         if self._stream_panel.is_streaming:
