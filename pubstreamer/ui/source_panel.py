@@ -1787,7 +1787,13 @@ class _AddSourceDialog(wx.Dialog):
                     except ValueError:
                         pass   # voice not yet in list (fetch pending)
                 else:
-                    idx = int(val) if val is not None else 0
+                    # Index mode (no fetch). val is an integer index.
+                    # Guard against string voice IDs from fetch-mode engines
+                    # whose voice list hasn't been populated yet.
+                    try:
+                        idx = int(val) if val is not None else 0
+                    except (ValueError, TypeError):
+                        idx = -1
                     if 0 <= idx < w.GetCount():
                         w.SetSelection(idx)
 
@@ -1899,10 +1905,11 @@ class _AddSourceDialog(wx.Dialog):
     def _on_tts_engine(self, _event=None):
         old = self._tts_book.GetSelection()
         new = self._tts_engine_cb.GetSelection()
-        if old != wx.NOT_FOUND and old != new:
+        if old not in (wx.NOT_FOUND, new):
             self._tts_book.GetPage(old).Disable()
         self._tts_book.SetSelection(new)
         self._tts_book.GetPage(new).Enable()
+        self.Layout()
         self._tts_engine_cb.SetFocus()
 
     def _on_tts_preview(self, _event=None):
