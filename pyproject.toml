@@ -2,7 +2,7 @@
 name = "pub-streamer"
 version = "0.1.0"
 description = "Lightweight all-in-one Audio Pub streaming client"
-requires-python = ">=3.11"
+requires-python = ">=3.12,<3.13"
 dependencies = [
     "pyaudiowpatch>=0.2.12",
     "numpy>=1.24",
