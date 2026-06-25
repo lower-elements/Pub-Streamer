@@ -84,15 +84,15 @@ Recording writes to a local file independently of streaming. Split into stems re
 
 Posts to a Mastodon instance when a stream goes live. The post template supports `{url}`, `{title}`, and `{description}` substitutions.
 
-## Rebuilding native components
+## Building native components
 
-`audio_hook32.dll`, `audio_hook64.dll`, and `injector32.exe` are pre-built in `hook/`. To rebuild them you need CMake and Visual Studio Build Tools 2022 with the C++ workload:
+`audio_hook32.dll`, `audio_hook64.dll`, and `injector32.exe` are **not** checked into the repo — `LegacyCapture` (used to capture audio from most injectable target processes; see "Application" above) requires them in `native/dist/` and won't work until they're built. To build them you need Visual Studio 2022 (any edition with the C++ workload) and CMake (standalone or the copy bundled with VS):
 
 ```
 .\build_native.ps1
 ```
 
-Outputs land in `native/dist/`.
+The script locates your VS/CMake install automatically and places the outputs in `native/dist/`.
 
 ## License
 
