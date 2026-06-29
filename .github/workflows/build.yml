@@ -48,6 +48,13 @@ jobs:
           key: native-${{ runner.os }}-${{ hashFiles('native/**/*.c', 'native/**/*.h', 'native/**/CMakeLists.txt') }}
 
       - name: Build native components
+        # MSBuild leaves worker nodes alive (node reuse, on by default) that
+        # inherit the step's stdout handle, so the Actions runner blocks ~15 min
+        # per build waiting for the pipe to close and the step appears to hang —
+        # even though the trivial build finishes in seconds. Disabling node reuse
+        # makes each build's processes exit promptly. Harmless locally.
+        env:
+          MSBUILDDISABLENODEREUSE: "1"
         run: ./build_native.ps1
 
       # ccache + the downloaded MinGW toolchain live under NUITKA_CACHE_DIR.
