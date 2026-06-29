@@ -74,8 +74,14 @@ function Build-CMake {
     $cmakeArch = if ($arch -eq "x64") { "x64" } else { "Win32" }
     $src = "$nativeDir\$subdir"
 
+    # /nodeReuse:false stops MSBuild from leaving worker nodes alive after the
+    # build. Those lingering nodes keep this script's Start-Process -Wait (and,
+    # on CI, the GitHub Actions step's stdout handle) blocked for ~15 min even
+    # though the trivial build finished in seconds. The command-line switch is
+    # authoritative — the MSBUILDDISABLENODEREUSE env var was unreliable on the
+    # hosted runner.
     $cmd = @"
-call "$vcvars" >nul 2>&1 && "$cmakeExe" -S "$src" -B "$buildDir" -A $cmakeArch -DCMAKE_BUILD_TYPE=Release >nul && "$cmakeExe" --build "$buildDir" --config Release
+call "$vcvars" >nul 2>&1 && "$cmakeExe" -S "$src" -B "$buildDir" -A $cmakeArch -DCMAKE_BUILD_TYPE=Release >nul && "$cmakeExe" --build "$buildDir" --config Release -- /nodeReuse:false
 "@
     Write-Host "Building $label ($arch)..."
     $proc = Start-Process -FilePath "cmd.exe" -ArgumentList "/c", $cmd -NoNewWindow -Wait -PassThru
@@ -98,3 +104,11 @@ Build-CMake -vcvars $vcvars32 -arch "x86" -label "injector32.exe"   -subdir "inj
 Write-Host ""
 Write-Host "Build complete. Outputs in: $distDir"
 Get-ChildItem $distDir | Select-Object Name, Length
+
+# Safety net: make sure no MSBuild worker node is left holding a handle that
+# would keep the CI step alive after this script returns. /nodeReuse:false
+# should already prevent this, but kill any straggler to be certain.
+if ($env:GITHUB_ACTIONS -eq "true") {
+    Get-Process MSBuild, VBCSCompiler -ErrorAction SilentlyContinue |
+        Stop-Process -Force -ErrorAction SilentlyContinue
+}
