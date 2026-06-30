@@ -74,11 +74,20 @@ function Build-CMake {
     $cmakeArch = if ($arch -eq "x64") { "x64" } else { "Win32" }
     $src = "$nativeDir\$subdir"
 
+    # /nodeReuse:false keeps MSBuild from leaving worker nodes alive after the
+    # build — one source of the lingering MSVC build servers below.
     $cmd = @"
-call "$vcvars" >nul 2>&1 && "$cmakeExe" -S "$src" -B "$buildDir" -A $cmakeArch -DCMAKE_BUILD_TYPE=Release >nul && "$cmakeExe" --build "$buildDir" --config Release
+call "$vcvars" >nul 2>&1 && "$cmakeExe" -S "$src" -B "$buildDir" -A $cmakeArch -DCMAKE_BUILD_TYPE=Release >nul && "$cmakeExe" --build "$buildDir" --config Release -- /nodeReuse:false
 "@
     Write-Host "Building $label ($arch)..."
-    $proc = Start-Process -FilePath "cmd.exe" -ArgumentList "/c", $cmd -NoNewWindow -Wait -PassThru
+    # Do NOT use Start-Process -Wait: it tracks the child in a Win32 job object
+    # and waits for the entire process *tree* to exit. MSVC leaves build servers
+    # running after the build (MSBuild worker nodes, mspdbsrv.exe), so -Wait
+    # blocks ~15 min on the hosted runner even though the build finished in
+    # seconds. WaitForExit() waits for just cmd.exe instead.
+    # (PowerShell/PowerShell#15555, #25262)
+    $proc = Start-Process -FilePath "cmd.exe" -ArgumentList "/c", $cmd -NoNewWindow -PassThru
+    $proc.WaitForExit()
     if ($proc.ExitCode -ne 0) {
         Write-Error "$label ($arch) build failed"
         exit $proc.ExitCode
@@ -98,3 +107,13 @@ Build-CMake -vcvars $vcvars32 -arch "x86" -label "injector32.exe"   -subdir "inj
 Write-Host ""
 Write-Host "Build complete. Outputs in: $distDir"
 Get-ChildItem $distDir | Select-Object Name, Length
+
+# Safety net: the lingering MSVC build servers (MSBuild worker nodes,
+# mspdbsrv.exe, the C#/VB compiler server) inherit the CI step's stdout handle
+# and keep it open after this script returns, so the GitHub Actions runner
+# waits on the step until they time out (~15 min). Kill them so the step ends
+# promptly. Only on CI — leave a developer's local build servers alone.
+if ($env:GITHUB_ACTIONS -eq "true") {
+    Get-Process MSBuild, mspdbsrv, VBCSCompiler, vctip -ErrorAction SilentlyContinue |
+        Stop-Process -Force -ErrorAction SilentlyContinue
+}

@@ -11,7 +11,7 @@ build/
 config.ini
 
 # Native CMake build cache — intermediate files only, not the final binaries.
-# The compiled DLLs and exe in native/dist/ ARE committed to the repo.
+# native/dist/ output is built locally or in CI and not committed to the repo.
 native/**/build*/
 native/**/CMakeFiles/
 native/**/CMakeCache.txt
